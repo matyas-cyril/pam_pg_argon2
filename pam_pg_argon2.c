@@ -6,6 +6,10 @@
 #include <stdbool.h>
 #include <ctype.h>
 
+#include <security/pam_appl.h>
+#include <security/pam_modules.h>
+#include <security/pam_ext.h>
+
 #define MAX_LINE_LEN 2048
 #define MAX_OPT_LEN 256
 #define MAX_QUERY_LEN 2048
@@ -160,4 +164,18 @@ static Config* load_config(const char *fileName) {
     return config;
 }
 
+/*
+    APPELS EXT DES FONCTIONS POUR PAM
+*/
+
+// 
+PAM_EXTERN int pam_sm_setcred(pam_handle_t *pamh, int flags, int argc, const char **argv) {
+    (void) pamh; (void) flags; (void) argc; (void) argv;
+    return PAM_SUCCESS;
+}
+
+PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc, const char **argv) {
+    (void) pamh; (void) flags; (void) argc; (void) argv;
+    return PAM_SUCCESS;
+}
 
