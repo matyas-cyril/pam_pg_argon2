@@ -70,7 +70,8 @@ static char* trim_space(char *str) {
     return str;
 }
 
-static void clean_string(char *dest, const char *src) {
+static void clean_string(char *dest, size_t dest_size, const char *src) {
+    if (dest_size == 0) return;
     while (isspace((unsigned char)*src)) src++;
     size_t len = strlen(src);
     while (len > 0 && isspace((unsigned char)src[len - 1])) len--;
@@ -78,7 +79,8 @@ static void clean_string(char *dest, const char *src) {
         src++;
         len -= 2;
     }
-    strncpy(dest, src, len);
+    if (len >= dest_size) len = dest_size - 1;
+    memcpy(dest, src, len);
     dest[len] = '\0';
 }
 
@@ -127,64 +129,62 @@ static Config* load_config(pam_handle_t *pamh, const char *fileName) {
 
         if (key && value) {
             char clean_key[256];
-            char clean_value[MAX_LINE_LEN];
-
-            clean_string(clean_key, key);
-            clean_string(clean_value, value);
+            clean_string(clean_key, sizeof(clean_key), key);
 
             if (strcmp(clean_key, "host") == 0) {
-                strncpy(config->host, clean_value, sizeof(config->host) - 1);
+                clean_string(config->host, sizeof(config->host), value);
             } 
             else if (strcmp(clean_key, "port") == 0) {
-
-                // Vérifie la validité du port
-                int p = atoi(clean_value);
+                char clean_val[64];
+                clean_string(clean_val, sizeof(clean_val), value);
+                int p = atoi(clean_val);
                 if (p >= 1 && p <= 65535) {
                     config->port = (unsigned int)p;
                 } else {
-                    pam_syslog(pamh, LOG_ERR, "Invalid port value '%s' in '%s' config file", clean_value, fileName);
+                    pam_syslog(pamh, LOG_ERR, "Invalid port value '%s' in '%s' config file", clean_val, fileName);
                     fclose(file);
+                    free(config);
                     return NULL;
                 }
             } 
             else if (strcmp(clean_key, "db_name") == 0) {
-                strncpy(config->db_name, clean_value, sizeof(config->db_name) - 1);
+                clean_string(config->db_name, sizeof(config->db_name), value);
             } 
             else if (strcmp(clean_key, "user") == 0) {
-                strncpy(config->user, clean_value, sizeof(config->user) - 1);
+                clean_string(config->user, sizeof(config->user), value);
             } 
             else if (strcmp(clean_key, "password") == 0) {
-                strncpy(config->password, clean_value, sizeof(config->password) - 1);
+                clean_string(config->password, sizeof(config->password), value);
             } 
             else if (strcmp(clean_key, "sslmode") == 0) {
-                if (strcmp(clean_value, "true") == 0 || strcmp(clean_value, "1") == 0) {
-                    config->sslmode = true;
-                } else {
-                    config->sslmode = false;
-                }
+                char clean_val[64];
+                clean_string(clean_val, sizeof(clean_val), value);
+                config->sslmode = (strcmp(clean_val, "true") == 0 || strcmp(clean_val, "1") == 0);
             } 
             else if (strcmp(clean_key, "query") == 0) {
-                strncpy(config->query, clean_value, sizeof(config->query) - 1);
+                clean_string(config->query, sizeof(config->query), value);
             }
             else if (strcmp(clean_key, "timeout") == 0) {
-
-                // Vérifie la validité du timeout
-                int t = atoi(clean_value);
+                char clean_val[64];
+                clean_string(clean_val, sizeof(clean_val), value);
+                int t = atoi(clean_val);
                 if (t >= 0 && t <= 3600) {
                     config->timeout = (unsigned int)t;
                 } else {
-                    pam_syslog(pamh, LOG_ERR, "Invalid timeout value '%s' in '%s' config file", clean_value, fileName);
+                    pam_syslog(pamh, LOG_ERR, "Invalid timeout value '%s' in '%s' config file", clean_val, fileName);
                     fclose(file);
+                    free(config);
                     return NULL;
                 }
-
             }
             else {
                 pam_syslog(pamh, LOG_ERR, "Invalid option name '%s' in '%s' config file", clean_key, fileName);
                 fclose(file);
+                free(config);
                 return NULL;
             }
         }
+
     }
 
     fclose(file);
