@@ -83,7 +83,7 @@ static void clean_string(char *dest, const char *src) {
     Charger le fichier de configuration
     Retourner une structure en cas de succès, sinon NULL
 */
-static Config* load_config(const char *fileName) {
+static Config* load_config(pam_handle_t *pamh, const char *fileName) {
 
     FILE *file = fopen(fileName, "r");
     if (!file) {
@@ -139,7 +139,7 @@ static Config* load_config(const char *fileName) {
                 if (p >= 1 && p <= 65535) {
                     config->port = (unsigned int)p;
                 } else {
-                    syslog(LOG_ERR, "Invalid port value '%s' in '%s' config file", clean_value, fileName);
+                    pam_syslog(pamh, LOG_ERR, "Invalid port value '%s' in '%s' config file", clean_value, fileName);
                     fclose(file);
                     return NULL;
                 }
@@ -170,14 +170,14 @@ static Config* load_config(const char *fileName) {
                 if (t >= 0 && t <= 3600) {
                     config->timeout = (unsigned int)t;
                 } else {
-                    syslog(LOG_ERR, "Invalid timeout value '%s' in '%s' config file", clean_value, fileName);
+                    pam_syslog(pamh, LOG_ERR, "Invalid timeout value '%s' in '%s' config file", clean_value, fileName);
                     fclose(file);
                     return NULL;
                 }
 
             }
             else {
-                syslog(LOG_ERR, "Invalid option name '%s' in '%s' config file", clean_key, fileName);
+                pam_syslog(pamh, LOG_ERR, "Invalid option name '%s' in '%s' config file", clean_key, fileName);
                 fclose(file);
                 return NULL;
             }
@@ -185,7 +185,7 @@ static Config* load_config(const char *fileName) {
     }
 
     fclose(file);
-    syslog(LOG_INFO, "Succes load '%s' config file", fileName);
+    pam_syslog(pamh, LOG_INFO, "Succes load '%s' config file", fileName);
     return config;
 }
 
@@ -200,9 +200,37 @@ static void secure_clear(void *ptr, size_t len) {
 
 }
 
-static int check_auth(pam_handle_t *pamh, const char *login, const char *password, int argc, const char **argv) {
+static const char *get_option(int argc, const char **argv, const char *name) {
+    if (name == NULL || argv == NULL) return NULL;
+    size_t name_len = strlen(name);
 
+    for (int i = 0; i < argc; i++) {
+        if (argv[i] != NULL && strncmp(argv[i], name, name_len) == 0 && argv[i][name_len] == '=') {
+            return argv[i] + name_len + 1;
+        }
+    }
+    return NULL;
+}
+
+static int check_auth(pam_handle_t *pamh, const char *login, const char *password, int argc, const char **argv) {
+ 
     int status = PAM_AUTH_ERR; // Par défaut on dit que c'est un échec
+    const char *conf_file;
+
+    // Récupérer le path du fichier de configuration fourni dans PAM
+    conf_file = get_option(argc, argv, "conf");
+    if (conf_file == NULL || conf_file[0] == '\0') {
+        pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: option conf= must be defined in conf PAM");
+        return PAM_SERVICE_ERR;
+    }
+
+    const Config *config;
+    // Traitement du fichier de configuration
+    config = load_config(pamh, conf_file);
+    if (config == NULL) {
+        pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: failed to init configuration");
+        return PAM_SERVICE_ERR;
+    }
 
     return status;
 }
