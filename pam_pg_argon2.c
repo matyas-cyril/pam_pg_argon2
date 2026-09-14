@@ -6,16 +6,18 @@
 #include <stdbool.h>
 #include <ctype.h>
 
-#define MAX_LINE_LEN 1024
+#define MAX_LINE_LEN 2048
+#define MAX_OPT_LEN 256
+#define MAX_QUERY_LEN 2048
 
 typedef struct {
-    char host[256];
+    char host[MAX_OPT_LEN];
     unsigned int port;
-    char db_name[256];
-    char user[256];
-    char password[256];
+    char db_name[MAX_OPT_LEN];
+    char user[MAX_OPT_LEN];
+    char password[MAX_OPT_LEN];
     bool sslmode;
-    char query[1024];
+    char query[MAX_QUERY_LEN];
 } Config;
 
 // Supprimer les espaces de gauche et de droite d'une chaine de carac
