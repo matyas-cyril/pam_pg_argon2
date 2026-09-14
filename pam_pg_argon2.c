@@ -102,6 +102,7 @@ static Config* load_config(const char *fileName) {
     strcpy(config->password, "");
     config->sslmode = false;
     strcpy(config->query, "");
+    config->timeout = 3;
 
     char line[MAX_LINE_LEN];
     while (fgets(line, sizeof(line), file)) {
@@ -155,6 +156,24 @@ static Config* load_config(const char *fileName) {
             } 
             else if (strcmp(clean_key, "query") == 0) {
                 strncpy(config->query, clean_value, sizeof(config->query) - 1);
+            }
+            else if (strcmp(clean_key, "timeout") == 0) {
+
+                // Vérifie la validité du timeout
+                int t = atoi(clean_value);
+                if (t >= 0 && t <= 3600) {
+                    config->timeout = (unsigned int)t;
+                } else {
+                    syslog(LOG_ERR, "Invalid timeout value '%s' in '%s' config file", clean_value, fileName);
+                    fclose(file);
+                    return NULL;
+                }
+
+            }
+            else {
+                syslog(LOG_ERR, "Invalid option name '%s' in '%s' config file", clean_key, fileName);
+                fclose(file);
+                return NULL;
             }
         }
     }
