@@ -10,6 +10,9 @@
 #include <security/pam_modules.h>
 #include <security/pam_ext.h>
 
+#include <argon2.h>
+#include <postgresql/libpq-fe.h>
+
 #define MAX_LINE_LEN 2048
 #define MAX_OPT_LEN 256
 #define MAX_QUERY_LEN 2048
@@ -215,6 +218,7 @@ static const char *get_option(int argc, const char **argv, const char *name) {
 static int check_auth(pam_handle_t *pamh, const char *login, const char *password, int argc, const char **argv) {
  
     int status = PAM_AUTH_ERR; // Par défaut on dit que c'est un échec
+    int user_found = 0;
     const char *conf_file;
 
     // Récupérer le path du fichier de configuration fourni dans PAM
@@ -231,6 +235,71 @@ static int check_auth(pam_handle_t *pamh, const char *login, const char *passwor
         pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: failed to init configuration");
         return PAM_SERVICE_ERR;
     }
+
+    // Définition de la connexion
+    char cnx_bdd[1024];
+    snprintf(cnx_bdd, sizeof(cnx_bdd),
+             "host=%s port=%u dbname=%s user=%s password=%s sslmode=%s connect_timeout=%u",
+             config->host,
+             config->port,
+             config->db_name,
+             config->user,
+             config->password,
+             config->sslmode ? "require" : "disable",
+             config->timeout);
+
+    // Essai de connexion
+    PGconn *cnx = PQconnectdb(cnx_bdd);
+    if (PQstatus(cnx) != CONNECTION_OK) {
+        pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: failed bdd connection - %s",PQerrorMessage(cnx));
+        PQfinish(cnx);
+        return PAM_AUTH_ERR;
+    }
+
+    const char *params[1];
+    params[0] = login;
+
+    // Traitement de la requête
+    PGresult *rslt = PQexecParams(cnx, config->query, 1, NULL, params, NULL, NULL, 0);
+
+    if (rslt == NULL) {
+        pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: query failed - %s", PQerrorMessage(cnx));
+        PQfinish(cnx);
+        return PAM_AUTH_ERR;
+    }
+
+    if (PQresultStatus(rslt) != PGRES_TUPLES_OK) {
+        pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: query respond not valid - %s", PQresultErrorMessage(rslt));
+        PQclear(rslt);
+        PQfinish(cnx);
+        return PAM_AUTH_ERR;
+    }
+
+    // Protection stricte contre les attaques temporelles
+    char dummy_hash[] = "$argon2id$v=19$m=65536,t=3,p=4$bXlzYWx0bXlzYWx0$vVpBdm1mZXFlR3NuR2Z2dW1GQ0F3QT09"; 
+    const char *hash_to_verify = dummy_hash;
+
+    const char *stored_hash = NULL;
+    if (PQntuples(rslt) == 1 && !PQgetisnull(rslt, 0, 0)) {
+        stored_hash = PQgetvalue(rslt, 0, 0);
+        if (stored_hash != NULL && stored_hash[0] != '\0') {
+            hash_to_verify = stored_hash;
+            user_found = 1;
+        }
+    }
+
+
+    int argon_status = argon2id_verify(hash_to_verify, password, strlen(password));
+    if(user_found && argon_status == ARGON2_OK) {
+        status = PAM_SUCCESS;
+    } else {
+        if (argon_status != ARGON2_OK && argon_status != ARGON2_VERIFY_MISMATCH) {
+            pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: argon2 error - %s", argon2_error_message(argon_status));
+        }
+    }
+
+    PQclear(rslt);
+    PQfinish(cnx);
 
     return status;
 }
