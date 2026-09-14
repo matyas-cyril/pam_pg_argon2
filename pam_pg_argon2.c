@@ -58,3 +58,15 @@ static char* trim_space(char *str) {
 
     return str;
 }
+
+static void clean_string(char *dest, const char *src) {
+    while (isspace((unsigned char)*src)) src++;
+    size_t len = strlen(src);
+    while (len > 0 && isspace((unsigned char)src[len - 1])) len--;
+    if (len >= 2 && ((src[0] == '\'' && src[len - 1] == '\'') || (src[0] == '"' && src[len - 1] == '"'))) {
+        src++;
+        len -= 2;
+    }
+    strncpy(dest, src, len);
+    dest[len] = '\0';
+}
