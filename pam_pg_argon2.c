@@ -10,6 +10,17 @@
 #define MAX_OPT_LEN 256
 #define MAX_QUERY_LEN 2048
 
+/*
+Structure du fichier ini par défaut :
+host = '127.0.0.1'
+port = 5432
+db_name = ''
+user = ''
+password = ''
+sslmode = false
+query = ''
+timeout = 3
+ */
 typedef struct {
     char host[MAX_OPT_LEN];
     unsigned int port;
@@ -18,6 +29,7 @@ typedef struct {
     char password[MAX_OPT_LEN];
     bool sslmode;
     char query[MAX_QUERY_LEN];
+    unsigned int timeout;
 } Config;
 
 // Supprimer les espaces de gauche et de droite d'une chaine de carac
