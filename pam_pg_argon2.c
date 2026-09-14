@@ -38,27 +38,31 @@ typedef struct {
 
 // Supprimer les espaces de gauche et de droite d'une chaine de carac
 static char* trim_space(char *str) {
+
     if (str == NULL) return NULL;
 
-    // 1. Déplacement du pointeur pour sauter les espaces du début (Left Trim)
-    // (unsigned char) est requis par ctype.h pour éviter des comportements indéfinis
-    while (isspace((unsigned char)*str)) {
-        str++;
+    char *start = str;
+    while (isspace((unsigned char)*start)) {
+        start++;
     }
 
-    // Si la chaîne était vide ou ne contenait que des espaces
-    if (*str == '\0') {
+    // Chaine vide ou avec des espaces
+    if (*start == '\0') {
+        *str = '\0';
         return str;
     }
 
-    // 2. Nettoyage des espaces de la fin (Right Trim)
-    char *end = str + strlen(str) - 1;
-    while (end > str && isspace((unsigned char)*end)) {
+    // Trouver la fin et couper les espaces de droite
+    char *end = start + strlen(start) - 1;
+    while (end > start && isspace((unsigned char)*end)) {
         end--;
     }
-
-    // Écriture du nouveau caractère de fin de chaîne
     *(end + 1) = '\0';
+
+    // Décaler la chaîne vers le début, au besoin.
+    if (start != str) {
+        memmove(str, start, (end - start) + 2); // +2 pour inclure le '\0'
+    }
 
     return str;
 }
@@ -105,23 +109,25 @@ static Config* load_config(const char *fileName) {
     config->timeout = 3;
 
     char line[MAX_LINE_LEN];
+    char *line_trimmed;
+
     while (fgets(line, sizeof(line), file)) {
 
-        *line = trim_space(line);
+        line_trimmed = trim_space(line);
         
-        if (line[0] == '\n' || line[0] == '\r' || line[0] == '#') {
+        if (line_trimmed[0] == '\n' || line_trimmed[0] == '\r' || line_trimmed[0] == '#') {
             continue;
         }
 
-        char *key = strtok(line, "=");
+        char *key = strtok(line_trimmed, "=");
         char *value = strtok(NULL, "\n\r");
 
         if (key && value) {
             char clean_key[256];
             char clean_value[MAX_LINE_LEN];
 
-            trim_and_clean(clean_key, key);
-            trim_and_clean(clean_value, value);
+            clean_string(clean_key, key);
+            clean_string(clean_value, value);
 
             if (strcmp(clean_key, "host") == 0) {
                 strncpy(config->host, clean_value, sizeof(config->host) - 1);
@@ -183,6 +189,24 @@ static Config* load_config(const char *fileName) {
     return config;
 }
 
+static void secure_clear(void *ptr, size_t len) {
+
+    if (ptr == NULL) return;
+    volatile unsigned char *p = ptr;
+    while (len > 0) {
+        *p++ = 0;
+        len--;
+    }
+
+}
+
+static int check_auth(pam_handle_t *pamh, const char *login, const char *password, int argc, const char **argv) {
+
+    int status = PAM_AUTH_ERR; // Par défaut on dit que c'est un échec
+
+    return status;
+}
+
 /*
     APPELS EXT DES FONCTIONS POUR PAM
 */
@@ -198,3 +222,30 @@ PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc, const c
     return PAM_SUCCESS;
 }
 
+PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, const char **argv) {
+    
+    const char *login = NULL;
+    const char *password = NULL;
+    int status;
+    (void) flags;
+
+    status = pam_get_user(pamh, &login, NULL);
+    if (status != PAM_SUCCESS || login == NULL || login[0] == '\0') {
+        pam_syslog(pamh, LOG_NOTICE, "pam_pg_argon2: failed to get login");
+        return PAM_AUTH_ERR;
+    }
+
+    status = pam_get_authtok(pamh, PAM_AUTHTOK, &password, NULL);
+    if (status != PAM_SUCCESS || password == NULL) {
+        pam_syslog(pamh, LOG_NOTICE, "pam_pg_argon2: failed to get password");
+        return PAM_AUTH_ERR;
+    }
+
+    int auth_result = check_auth(pamh, login, password, argc, argv);
+
+    if (password != NULL) {
+        secure_clear((void *)password, strlen(password));
+    }
+
+    return auth_result;
+}
