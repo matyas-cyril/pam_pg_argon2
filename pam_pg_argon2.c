@@ -70,3 +70,94 @@ static void clean_string(char *dest, const char *src) {
     strncpy(dest, src, len);
     dest[len] = '\0';
 }
+
+/*
+    Charger le fichier de configuration
+    Retourner une structure en cas de succès, sinon NULL
+*/
+static Config* load_config(const char *fileName) {
+
+    FILE *file = fopen(fileName, "r");
+    if (!file) {
+        syslog(LOG_ERR, "Failed to load file '%s' : %m", fileName);
+        return NULL;
+    }
+
+    Config *config = malloc(sizeof(Config));
+    if (!config) {
+        syslog(LOG_ERR, "Memory allocation error for configuration : %m");
+        fclose(file);
+        return NULL;
+    }
+
+    // Définir les valeurs par défaut pour la structure
+    strcpy(config->host, "127.0.0.1");
+    config->port = 5432;
+    strcpy(config->db_name, "");
+    strcpy(config->user, "");
+    strcpy(config->password, "");
+    config->sslmode = false;
+    strcpy(config->query, "");
+
+    char line[MAX_LINE_LEN];
+    while (fgets(line, sizeof(line), file)) {
+
+        *line = trim_space(line);
+        
+        if (line[0] == '\n' || line[0] == '\r' || line[0] == '#') {
+            continue;
+        }
+
+        char *key = strtok(line, "=");
+        char *value = strtok(NULL, "\n\r");
+
+        if (key && value) {
+            char clean_key[256];
+            char clean_value[MAX_LINE_LEN];
+
+            trim_and_clean(clean_key, key);
+            trim_and_clean(clean_value, value);
+
+            if (strcmp(clean_key, "host") == 0) {
+                strncpy(config->host, clean_value, sizeof(config->host) - 1);
+            } 
+            else if (strcmp(clean_key, "port") == 0) {
+
+                // Vérifie la validité du port
+                int p = atoi(clean_value);
+                if (p >= 1 && p <= 65535) {
+                    config->port = (unsigned int)p;
+                } else {
+                    syslog(LOG_ERR, "Invalid port value '%s' in '%s' config file", clean_value, fileName);
+                    fclose(file);
+                    return NULL;
+                }
+            } 
+            else if (strcmp(clean_key, "db_name") == 0) {
+                strncpy(config->db_name, clean_value, sizeof(config->db_name) - 1);
+            } 
+            else if (strcmp(clean_key, "user") == 0) {
+                strncpy(config->user, clean_value, sizeof(config->user) - 1);
+            } 
+            else if (strcmp(clean_key, "password") == 0) {
+                strncpy(config->password, clean_value, sizeof(config->password) - 1);
+            } 
+            else if (strcmp(clean_key, "sslmode") == 0) {
+                if (strcmp(clean_value, "true") == 0 || strcmp(clean_value, "1") == 0) {
+                    config->sslmode = true;
+                } else {
+                    config->sslmode = false;
+                }
+            } 
+            else if (strcmp(clean_key, "query") == 0) {
+                strncpy(config->query, clean_value, sizeof(config->query) - 1);
+            }
+        }
+    }
+
+    fclose(file);
+    syslog(LOG_INFO, "Succes load '%s' config file", fileName);
+    return config;
+}
+
+
