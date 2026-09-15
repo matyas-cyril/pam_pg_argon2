@@ -25,6 +25,7 @@ db_name = ''
 user = ''
 password = ''
 sslmode = false
+debug = false
 query = ''
 timeout = 3
  */
@@ -35,6 +36,7 @@ typedef struct {
     char user[MAX_OPT_LEN];
     char password[MAX_OPT_LEN];
     bool sslmode;
+    bool debug;
     char query[MAX_QUERY_LEN];
     unsigned int timeout;
 } Config;
@@ -92,13 +94,13 @@ static Config* load_config(pam_handle_t *pamh, const char *fileName) {
 
     FILE *file = fopen(fileName, "r");
     if (!file) {
-        syslog(LOG_ERR, "Failed to load file '%s' : %m", fileName);
+        pam_syslog(pamh, LOG_ERR, "Failed to load file '%s' : %m", fileName);
         return NULL;
     }
 
     Config *config = malloc(sizeof(Config));
     if (!config) {
-        syslog(LOG_ERR, "Memory allocation error for configuration : %m");
+        pam_syslog(pamh, LOG_ERR, "Memory allocation error for configuration : %m");
         fclose(file);
         return NULL;
     }
@@ -110,6 +112,7 @@ static Config* load_config(pam_handle_t *pamh, const char *fileName) {
     strcpy(config->user, "");
     strcpy(config->password, "");
     config->sslmode = false;
+    config->debug = false;
     strcpy(config->query, "");
     config->timeout = 3;
 
@@ -146,21 +149,26 @@ static Config* load_config(pam_handle_t *pamh, const char *fileName) {
                     free(config);
                     return NULL;
                 }
-            } 
+            }
             else if (strcmp(clean_key, "db_name") == 0) {
                 clean_string(config->db_name, sizeof(config->db_name), value);
-            } 
+            }
             else if (strcmp(clean_key, "user") == 0) {
                 clean_string(config->user, sizeof(config->user), value);
-            } 
+            }
             else if (strcmp(clean_key, "password") == 0) {
                 clean_string(config->password, sizeof(config->password), value);
-            } 
+            }
             else if (strcmp(clean_key, "sslmode") == 0) {
                 char clean_val[64];
                 clean_string(clean_val, sizeof(clean_val), value);
                 config->sslmode = (strcmp(clean_val, "true") == 0 || strcmp(clean_val, "1") == 0);
-            } 
+            }
+            else if (strcmp(clean_key, "debug") == 0) {
+                char clean_val[64];
+                clean_string(clean_val, sizeof(clean_val), value);
+                config->debug = (strcmp(clean_val, "true") == 0 || strcmp(clean_val, "1") == 0);
+            }
             else if (strcmp(clean_key, "query") == 0) {
                 clean_string(config->query, sizeof(config->query), value);
             }
@@ -192,6 +200,7 @@ static Config* load_config(pam_handle_t *pamh, const char *fileName) {
     return config;
 }
 
+// Écraser la zone mémoire avec des 0
 static void secure_clear(void *ptr, size_t len) {
 
     if (ptr == NULL) return;
@@ -308,7 +317,6 @@ static int check_auth(pam_handle_t *pamh, const char *login, const char *passwor
     APPELS EXT DES FONCTIONS POUR PAM
 */
 
-// 
 PAM_EXTERN int pam_sm_setcred(pam_handle_t *pamh, int flags, int argc, const char **argv) {
     (void) pamh; (void) flags; (void) argc; (void) argv;
     return PAM_SUCCESS;
