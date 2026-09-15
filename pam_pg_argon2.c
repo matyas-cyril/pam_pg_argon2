@@ -200,18 +200,6 @@ static Config* load_config(pam_handle_t *pamh, const char *fileName) {
     return config;
 }
 
-// Écraser la zone mémoire avec des 0
-static void secure_clear(void *ptr, size_t len) {
-
-    if (ptr == NULL) return;
-    volatile unsigned char *p = ptr;
-    while (len > 0) {
-        *p++ = 0;
-        len--;
-    }
-
-}
-
 static const char *get_option(int argc, const char **argv, const char *name) {
     if (name == NULL || argv == NULL) return NULL;
     size_t name_len = strlen(name);
@@ -336,12 +324,9 @@ static int check_auth(pam_handle_t *pamh, const char *login, const char *passwor
     return status;
 }
 
-
-
 /*
     APPELS EXT DES FONCTIONS POUR PAM
 */
-
 PAM_EXTERN int pam_sm_setcred(pam_handle_t *pamh, int flags, int argc, const char **argv) {
     (void) pamh; (void) flags; (void) argc; (void) argv;
     return PAM_SUCCESS;
@@ -356,6 +341,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
     
     const char *login = NULL;
     const char *password = NULL;
+    char *local_password = NULL;
     (void) flags;
 
     int status = pam_get_user(pamh, &login, NULL);
@@ -370,11 +356,24 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
         return PAM_AUTH_ERR;
     }
 
+    local_password = strdup(password);
+    if (local_password == NULL) {
+            pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: memory allocation failure");
+            return PAM_BUF_ERR;
+    }
+    
     int auth_result = check_auth(pamh, login, password, argc, argv);
 
-    if (password != NULL) {
-        secure_clear((void *)password, strlen(password));
-    }
+    // Clean du buffer du mot de passe
+    if (local_password != NULL) {
+        size_t len = strlen(local_password);
+        if (len > 0) {
+            explicit_bzero(local_password,len);
+            free(local_password);
+            local_password = NULL;
+        }
 
+    }
+    
     return auth_result;
 }
