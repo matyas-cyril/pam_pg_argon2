@@ -227,17 +227,19 @@ static const char *get_option(int argc, const char **argv, const char *name) {
 static int check_auth(pam_handle_t *pamh, const char *login, const char *password, int argc, const char **argv) {
  
     int status = PAM_AUTH_ERR; // Par défaut on dit que c'est un échec
-    int user_found = 0;
-    const char *conf_file;
+
+    // Déclaration pour utilisation de goto
+    Config *config = NULL;
+    PGconn *cnx = NULL;
+    PGresult *rslt = NULL;
 
     // Récupérer le path du fichier de configuration fourni dans PAM
-    conf_file = get_option(argc, argv, "conf");
+    const char *conf_file = get_option(argc, argv, "conf");
     if (conf_file == NULL || conf_file[0] == '\0') {
         pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: option conf= must be defined in conf PAM");
         return PAM_SERVICE_ERR;
     }
 
-    const Config *config;
     // Traitement du fichier de configuration
     config = load_config(pamh, conf_file);
     if (config == NULL) {
@@ -273,35 +275,32 @@ static int check_auth(pam_handle_t *pamh, const char *login, const char *passwor
     };
 
     // Essai de connexion
-    PGconn *cnx = PQconnectdbParams(keywords, values, 0);
+    cnx = PQconnectdbParams(keywords, values, 0);
     if (PQstatus(cnx) != CONNECTION_OK) {
         pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: failed bdd connection - %s",PQerrorMessage(cnx));
-        PQfinish(cnx);
-        return PAM_AUTH_ERR;
+        goto defer;
     }
 
     const char *params[1];
     params[0] = login;
 
     // Traitement de la requête
-    PGresult *rslt = PQexecParams(cnx, config->query, 1, NULL, params, NULL, NULL, 0);
+    rslt = PQexecParams(cnx, config->query, 1, NULL, params, NULL, NULL, 0);
 
     if (rslt == NULL) {
         pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: query failed - %s", PQerrorMessage(cnx));
-        PQfinish(cnx);
-        return PAM_AUTH_ERR;
+        goto defer;
     }
 
     if (PQresultStatus(rslt) != PGRES_TUPLES_OK) {
         pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: query respond not valid - %s", PQresultErrorMessage(rslt));
-        PQclear(rslt);
-        PQfinish(cnx);
-        return PAM_AUTH_ERR;
+        goto defer;
     }
 
     // Protection stricte contre les attaques temporelles
     char dummy_hash[] = "$argon2id$v=19$m=65536,t=3,p=4$bXlzYWx0bXlzYWx0$vVpBdm1mZXFlR3NuR2Z2dW1GQ0F3QT09"; 
     const char *hash_to_verify = dummy_hash;
+    int user_found = 0;
 
     const char *stored_hash = NULL;
     if (PQntuples(rslt) == 1 && !PQgetisnull(rslt, 0, 0)) {
@@ -312,7 +311,6 @@ static int check_auth(pam_handle_t *pamh, const char *login, const char *passwor
         }
     }
 
-
     int argon_status = argon2id_verify(hash_to_verify, password, strlen(password));
     if(user_found && argon_status == ARGON2_OK) {
         status = PAM_SUCCESS;
@@ -322,11 +320,23 @@ static int check_auth(pam_handle_t *pamh, const char *login, const char *passwor
         }
     }
 
-    PQclear(rslt);
-    PQfinish(cnx);
+    defer:
+        if (rslt != NULL) {
+            PQclear(rslt);
+        }
+
+        if (cnx != NULL) {
+            PQfinish(cnx);
+        }
+
+        if (config != NULL) {
+            free(config);
+        }
 
     return status;
 }
+
+
 
 /*
     APPELS EXT DES FONCTIONS POUR PAM
