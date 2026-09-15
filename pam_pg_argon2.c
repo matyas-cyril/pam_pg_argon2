@@ -127,7 +127,7 @@ static Config* load_config(pam_handle_t *pamh, const char *fileName) {
             continue;
         }
 
-        char *key = strtok(line_trimmed, "=");
+        char *key = strchr(line_trimmed, '=');
         char *value = strtok(NULL, "\n\r");
 
         if (key && value) {
