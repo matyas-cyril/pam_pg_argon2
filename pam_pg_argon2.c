@@ -246,19 +246,34 @@ static int check_auth(pam_handle_t *pamh, const char *login, const char *passwor
     }
 
     // Définition de la connexion
-    char cnx_bdd[1024];
-    snprintf(cnx_bdd, sizeof(cnx_bdd),
-             "host=%s port=%u dbname=%s user=%s password=%s sslmode=%s connect_timeout=%u",
-             config->host,
-             config->port,
-             config->db_name,
-             config->user,
-             config->password,
-             config->sslmode ? "require" : "disable",
-             config->timeout);
+    const char *keywords[] = {
+        "host",
+        "port",
+        "dbname",
+        "user",
+        "password",
+        "sslmode",
+        "connect_timeout",
+         NULL
+    };
+
+    char port_str[12], timeout_str[12];
+    snprintf(port_str, sizeof(port_str), "%u", config->port);
+    snprintf(timeout_str, sizeof(timeout_str), "%u", config->timeout);
+    
+    const char *values[] = {
+        config->host,
+        port_str,
+        config->db_name,
+        config->user,
+        config->password,
+        config->sslmode ? "require" : "disable",
+        timeout_str,
+        NULL
+    };
 
     // Essai de connexion
-    PGconn *cnx = PQconnectdb(cnx_bdd);
+    PGconn *cnx = PQconnectdbParams(keywords, values, 0);
     if (PQstatus(cnx) != CONNECTION_OK) {
         pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: failed bdd connection - %s",PQerrorMessage(cnx));
         PQfinish(cnx);
@@ -331,10 +346,9 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
     
     const char *login = NULL;
     const char *password = NULL;
-    int status;
     (void) flags;
 
-    status = pam_get_user(pamh, &login, NULL);
+    int status = pam_get_user(pamh, &login, NULL);
     if (status != PAM_SUCCESS || login == NULL || login[0] == '\0') {
         pam_syslog(pamh, LOG_NOTICE, "pam_pg_argon2: failed to get login");
         return PAM_AUTH_ERR;
