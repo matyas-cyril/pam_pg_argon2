@@ -5,6 +5,7 @@
 #include <syslog.h>
 #include <stdbool.h>
 #include <ctype.h>
+#include <ini.h>
 
 #include <security/pam_appl.h>
 #include <security/pam_modules.h>
@@ -19,14 +20,14 @@
 
 /*
 Structure du fichier ini par défaut :
-host = '127.0.0.1'
+host = 127.0.0.1
 port = 5432
-db_name = ''
-user = ''
-password = ''
+db_name = 
+user = 
+password = 
 sslmode = false
 debug = false
-query = ''
+query = 
 timeout = 3
  */
 typedef struct {
@@ -41,49 +42,164 @@ typedef struct {
     unsigned int timeout;
 } Config;
 
-// Supprimer les espaces de gauche et de droite d'une chaine de carac
-static char* trim_space(char *str) {
+typedef struct {
+    Config *cfg;
+    bool has_error;
+    int error_line;
+    char error_msg[256];
+} ParseConfig;
 
-    if (str == NULL) return NULL;
-
-    char *start = str;
-    while (isspace((unsigned char)*start)) {
-        start++;
-    }
-
-    // Chaine vide ou avec des espaces
-    if (*start == '\0') {
-        *str = '\0';
-        return str;
-    }
-
-    // Trouver la fin et couper les espaces de droite
-    char *end = start + strlen(start) - 1;
-    while (end > start && isspace((unsigned char)*end)) {
-        end--;
-    }
-    *(end + 1) = '\0';
-
-    // Décaler la chaîne vers le début, au besoin.
-    if (start != str) {
-        memmove(str, start, (end - start) + 2); // +2 pour inclure le '\0'
-    }
-
-    return str;
+static bool parse_bool(const char *val) {
+    return (strcasecmp(val, "true") == 0 || strcmp(val, "1") == 0);
 }
 
-static void clean_string(char *dest, size_t dest_size, const char *src) {
-    if (dest_size == 0) return;
-    while (isspace((unsigned char)*src)) src++;
-    size_t len = strlen(src);
-    while (len > 0 && isspace((unsigned char)src[len - 1])) len--;
-    if (len >= 2 && ((src[0] == '\'' && src[len - 1] == '\'') || (src[0] == '"' && src[len - 1] == '"'))) {
-        src++;
-        len -= 2;
+// Supprime les espaces en debut et fin de chaine
+static char *trim(const char *str) {
+
+    if (!str) return NULL;
+
+    // Supprime les espaces en début de chaine
+    while (isspace((unsigned char)*str)) str++;
+
+    // Chaine vide
+    if (*str == '\0') return strdup(""); 
+
+    // Supprime les espaces en fin de chaine
+    const char *end = str + strlen(str) - 1;
+    while (end > str && isspace((unsigned char)*end)) end--;
+
+    size_t len = end - str + 1;
+
+    // Alloue la mémoire pour la nouvelle chaîne (+1 pour le '\0')
+    char *trimmed_str = malloc(len + 1);
+    if (!trimmed_str) return NULL;
+
+    // Copie le résultat et ajoute le caractère de fin
+    memcpy(trimmed_str, str, len);
+    trimmed_str[len] = '\0';
+
+    return trimmed_str;
+}
+
+static int handler_config(void* config, const char* section, const char* name, const char* value) {
+
+    ParseConfig* ctx = (ParseConfig*)config;
+    Config* cfg = ctx->cfg;
+
+    #define MATCH_SECTION(s) (strcasecmp(section, s) == 0)
+    #define MATCH_KEY(n) (strcasecmp(name, n) == 0)
+
+    // Nettoyer la valeur
+    char *clean_value = trim(value);
+
+    // Clef existant avec valeur nulle ou non def
+    if (clean_value == NULL || clean_value[0] == '\0')  {
+        snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Null value for '%s.%s' key", section, name);
+        return 0;
     }
-    if (len >= dest_size) len = dest_size - 1;
-    memcpy(dest, src, len);
-    dest[len] = '\0';
+   
+    // Section [POSTGRES]
+    if (MATCH_SECTION("POSTGRES")) {    
+
+        if (MATCH_KEY("host")) {
+
+            strncpy(cfg->host, clean_value, MAX_OPT_LEN - 1);
+            cfg->host[MAX_OPT_LEN - 1] = '\0';
+        
+        } else if (MATCH_KEY("port")) {
+
+            char *end;
+            int port = (int)strtol(clean_value, &end, 10);
+
+            // On n'a pas un entier
+            if (*end != '\0') {
+                snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Value not an integer for '%s.%s' key", section, name);
+                return 0;
+            }
+
+            if (port >= 1 && port <= 65535) {
+                cfg->port = (unsigned int)port;
+            } else {
+                snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Value must be [1-65535] for '%s.%s' key", section, name);
+                return 0;
+            }
+
+        } else if (MATCH_KEY("db_name")) {
+
+            strncpy(cfg->db_name, clean_value, MAX_OPT_LEN - 1);
+            cfg->db_name[MAX_OPT_LEN - 1] = '\0';            
+            
+        } else if (MATCH_KEY("user")) {
+
+            strncpy(cfg->user, clean_value, MAX_OPT_LEN - 1);
+            cfg->user[MAX_OPT_LEN - 1] = '\0';  
+
+        } else if (MATCH_KEY("password")) {
+
+            strncpy(cfg->password, clean_value, MAX_OPT_LEN - 1);
+            cfg->password[MAX_OPT_LEN - 1] = '\0'; 
+
+        } else if (MATCH_KEY("sslmode")) {
+
+            if (strncmp(clean_value, "true",4) == 0 || strncmp(clean_value, "false",5) == 0) {
+                cfg->sslmode = parse_bool(clean_value);
+            } else {
+                snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Value must be 'true' or 'false' for '%s.%s' key", section, name);
+                return 0;
+            }
+
+        } else if (MATCH_KEY("timeout")) {  
+            
+            char *end;
+            int timeout = (int)strtol(clean_value, &end, 10);
+
+            // On n'a pas un entier
+            if (*end != '\0') {
+                snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Value not an integer for '%s.%s' key", section, name);
+                return 0;
+            }
+
+            if (timeout >= 0 && timeout <= 3600) {
+                cfg->timeout = (unsigned int)timeout;
+            } else {
+                snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Value must be [0-3600] for '%s.%s' key", section, name);
+                return 0;
+            }
+
+        } else {
+            snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Key '%s.%s' not exist", section, name);
+            return 0;
+        }
+    }
+
+    // Section [APP]
+    else if (MATCH_SECTION("APP")) {
+
+        if (MATCH_KEY("query")) {
+
+            strncpy(cfg->query, clean_value, MAX_OPT_LEN - 1);
+            cfg->query[MAX_OPT_LEN - 1] = '\0';
+
+        } else if (MATCH_KEY("debug")) {
+
+            if (strncmp(clean_value, "true",4) == 0 || strncmp(clean_value, "false",5) == 0) {
+                cfg->debug = parse_bool(clean_value);
+            } else {
+                snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Value must be 'true' or 'false' for '%s.%s' key", section, name);
+                return 0;
+            }
+
+        } else {
+            snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Key '%s.%s' not exist", section, name);
+            return 0;
+        }
+
+    } else {
+        snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Section '%s' not exist", section);
+        return 0;
+    }
+
+    return 1; // Succes
 }
 
 /*
@@ -92,112 +208,48 @@ static void clean_string(char *dest, size_t dest_size, const char *src) {
 */
 static Config* load_config(pam_handle_t *pamh, const char *fileName) {
 
-    FILE *file = fopen(fileName, "r");
-    if (!file) {
-        pam_syslog(pamh, LOG_ERR, "Failed to load file '%s' : %m", fileName);
-        return NULL;
-    }
-
     Config *config = malloc(sizeof(Config));
-    if (!config) {
-        pam_syslog(pamh, LOG_ERR, "Memory allocation error for configuration : %m");
-        fclose(file);
+    if (config == NULL) {
+        pam_syslog(pamh, LOG_ERR, "Memory allocation error to init configuration file '%s' : %m", fileName);
         return NULL;
     }
 
-    // Définir les valeurs par défaut pour la structure
-    strcpy(config->host, "127.0.0.1");
-    config->port = 5432;
-    strcpy(config->db_name, "");
-    strcpy(config->user, "");
-    strcpy(config->password, "");
-    config->sslmode = false;
-    config->debug = false;
-    strcpy(config->query, "");
-    config->timeout = 3;
+    // Déclacation de config avec les valeurs par défaut.
+    *config = (Config){
+        .host = "127.0.0.1",
+        .port = 5432,
+        .db_name = "",
+        .user = "",
+        .password = "",
+        .sslmode = false,
+        .debug = false,
+        .query = "",
+        .timeout = 3
+    };
 
-    char line[MAX_LINE_LEN];
-    char *line_trimmed;
+    ParseConfig ctx = {
+        .cfg = config
+    };
 
-    while (fgets(line, sizeof(line), file)) {
+    int status = ini_parse(fileName, handler_config, &ctx);
+    if (status > 0) {
+        pam_syslog(pamh, LOG_ERR, "Failed to load configuration file '%s' : %s\n", fileName, ctx.error_msg[0] != '\0' ? ctx.error_msg :"syntax error INI");
+        return NULL;
 
-        line_trimmed = trim_space(line);
-        
-        if (line_trimmed[0] == '\n' || line_trimmed[0] == '\r' || line_trimmed[0] == '#') {
-            continue;
-        }
+    } else if (status == -1) {
+        pam_syslog(pamh, LOG_ERR, "Failed to load configuration file '%s'\n", fileName);
+        return NULL;
 
-        char *key = strchr(line_trimmed, '=');
-        char *value = strtok(NULL, "\n\r");
-
-        if (key && value) {
-            char clean_key[256];
-            clean_string(clean_key, sizeof(clean_key), key);
-
-            if (strcmp(clean_key, "host") == 0) {
-                clean_string(config->host, sizeof(config->host), value);
-            } 
-            else if (strcmp(clean_key, "port") == 0) {
-                char clean_val[64];
-                clean_string(clean_val, sizeof(clean_val), value);
-                int p = atoi(clean_val);
-                if (p >= 1 && p <= 65535) {
-                    config->port = (unsigned int)p;
-                } else {
-                    pam_syslog(pamh, LOG_ERR, "Invalid port value '%s' in '%s' config file", clean_val, fileName);
-                    fclose(file);
-                    free(config);
-                    return NULL;
-                }
-            }
-            else if (strcmp(clean_key, "db_name") == 0) {
-                clean_string(config->db_name, sizeof(config->db_name), value);
-            }
-            else if (strcmp(clean_key, "user") == 0) {
-                clean_string(config->user, sizeof(config->user), value);
-            }
-            else if (strcmp(clean_key, "password") == 0) {
-                clean_string(config->password, sizeof(config->password), value);
-            }
-            else if (strcmp(clean_key, "sslmode") == 0) {
-                char clean_val[64];
-                clean_string(clean_val, sizeof(clean_val), value);
-                config->sslmode = (strcmp(clean_val, "true") == 0 || strcmp(clean_val, "1") == 0);
-            }
-            else if (strcmp(clean_key, "debug") == 0) {
-                char clean_val[64];
-                clean_string(clean_val, sizeof(clean_val), value);
-                config->debug = (strcmp(clean_val, "true") == 0 || strcmp(clean_val, "1") == 0);
-            }
-            else if (strcmp(clean_key, "query") == 0) {
-                clean_string(config->query, sizeof(config->query), value);
-            }
-            else if (strcmp(clean_key, "timeout") == 0) {
-                char clean_val[64];
-                clean_string(clean_val, sizeof(clean_val), value);
-                int t = atoi(clean_val);
-                if (t >= 0 && t <= 3600) {
-                    config->timeout = (unsigned int)t;
-                } else {
-                    pam_syslog(pamh, LOG_ERR, "Invalid timeout value '%s' in '%s' config file", clean_val, fileName);
-                    fclose(file);
-                    free(config);
-                    return NULL;
-                }
-            }
-            else {
-                pam_syslog(pamh, LOG_ERR, "Invalid option name '%s' in '%s' config file", clean_key, fileName);
-                fclose(file);
-                free(config);
-                return NULL;
-            }
-        }
-
+    } else if (status < -1) {
+        pam_syslog(pamh, LOG_ERR, "Failed to load configuration file '%s' : memory allocation error\n", fileName);
+        return NULL;
     }
 
-    fclose(file);
-    pam_syslog(pamh, LOG_INFO, "Succes load '%s' config file", fileName);
-    return config;
+    // Succès : status = 0
+
+    
+    return ctx.cfg;
+
 }
 
 static const char *get_option(int argc, const char **argv, const char *name) {
