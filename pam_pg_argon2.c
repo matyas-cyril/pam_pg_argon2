@@ -21,19 +21,23 @@
 #define MAX_QUERY_LEN 4096
 #define MAX_ERROR_LEN 256
 
-#define ARG_NAME "conf_file"
+#define FILENAME_ARG  "conf_file"
+#define FILENAME_SIZE 512
 
 /*
 Structure du fichier ini par défaut :
+[POSTGRES]
 host = 127.0.0.1
 port = 5432
 db_name = 
 user = 
 password = 
-sslmode = false
-debug = false
-query = 
+sslmode = verify-full
 timeout = 3
+
+[APP]
+query = 
+debug = false
  */
 typedef struct {
     char host[MAX_HOST_LEN];
@@ -59,33 +63,25 @@ static bool parse_bool(const char *val) {
 }
 
 // Supprime les espaces en debut et fin de chaine
-static char *trim(const char *str) {
+static bool trim(const char *src, char *dest, size_t dest_size) {
 
-    if (!str) return NULL;
+    if (!dest || dest_size == 0) return false;
 
-    // Déplace le pointeur au début de la chaîne nettoyée
-    while (isspace((unsigned char)*str)) str++;
+    if (!src) { *dest = '\0'; return false; }
 
-    // Trouver la fin sans repasser par strlen()
-    const char *end = str;
-    const char *last_non_space = str - 1;
+    // Supprimer les espaces au début
+    while (isspace((unsigned char)*src)) src++;
+    
+    // Calculer la longueur sans les espaces de fin
+    size_t src_len = strlen(src);
+    while (src_len > 0 && isspace((unsigned char)src[src_len - 1])) src_len--;
 
-    while (*end != '\0') {
-        if (!isspace((unsigned char)*end)) {
-            last_non_space = end;
-        }
-        end++;
-    }
+    if (src_len >= dest_size) { dest[0] = '\0'; return false; }
 
-    size_t len = (last_non_space >= str) ? (size_t)(last_non_space - str + 1) : 0;
+    memcpy(dest, src, src_len);
+    dest[src_len] = '\0';
 
-    char *trimmed_str = malloc(len + 1);
-    if (!trimmed_str) return NULL;
-
-    memcpy(trimmed_str, str, len);
-    trimmed_str[len] = '\0';
-
-    return trimmed_str;
+    return true;
 }
 
 // Traitement de la configuration
@@ -97,29 +93,27 @@ static int handler_config(void* config, const char* section, const char* name, c
     #define MATCH_SECTION(s) (strcasecmp(section, s) == 0)
     #define MATCH_KEY(n) (strcasecmp(name, n) == 0)
 
-    // Nettoyer la valeur
-    char *clean_value = trim(value);
-
-    // Clef existant avec valeur nulle ou non def
-    if (clean_value == NULL || clean_value[0] == '\0')  {
-        snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Null value for '%s.%s' key", section, name);
-        return 0;
-    }
-   
     // Section [POSTGRES]
     if (MATCH_SECTION("POSTGRES")) {    
 
         if (MATCH_KEY("host")) {
 
-            strncpy(cfg->host, clean_value, MAX_HOST_LEN - 1);
-            cfg->host[MAX_HOST_LEN - 1] = '\0';
-        
+            if (!trim(value, cfg->host, sizeof(cfg->host))) {
+                snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Invalid value for '%s.%s'", section, name);
+                return 0;
+            }
+
         } else if (MATCH_KEY("port")) {
 
-            char *end;
-            int port = (int)strtol(clean_value, &end, 10);
+            char clean_port[12];
+            if (!trim(value, clean_port, sizeof(clean_port))) {
+                snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Invalid value for '%s.%s'", section, name);
+                return 0;
+            }
 
-            // On n'a pas un entier
+            char *end;
+            int port = (int)strtol(clean_port, &end, 10);
+
             if (*end != '\0') {
                 snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Value not an integer for '%s.%s' key", section, name);
                 return 0;
@@ -134,34 +128,51 @@ static int handler_config(void* config, const char* section, const char* name, c
 
         } else if (MATCH_KEY("db_name")) {
 
-            strncpy(cfg->db_name, clean_value, MAX_DB_LEN - 1);
-            cfg->db_name[MAX_DB_LEN - 1] = '\0';            
-            
+            if (!trim(value, cfg->db_name, sizeof(cfg->db_name))) {
+                snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Invalid value for '%s.%s'", section, name);
+                return 0;
+            }
+
         } else if (MATCH_KEY("user")) {
 
-            strncpy(cfg->user, clean_value, MAX_USER_LEN - 1);
-            cfg->user[MAX_USER_LEN - 1] = '\0';  
+            if (!trim(value, cfg->user, sizeof(cfg->user))) {
+                snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Invalid value for '%s.%s'", section, name);
+                return 0;
+            }
 
         } else if (MATCH_KEY("password")) {
 
-            strncpy(cfg->password, clean_value, MAX_PASS_LEN - 1);
-            cfg->password[MAX_PASS_LEN - 1] = '\0'; 
+            if (!trim(value, cfg->password, sizeof(cfg->password))) {
+                snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Invalid value for '%s.%s'", section, name);
+                return 0;
+            }
 
         } else if (MATCH_KEY("sslmode")) {
 
-            if (strncmp(clean_value, "true",4) == 0 || strncmp(clean_value, "false",5) == 0) {
-                cfg->sslmode = parse_bool(clean_value);
+            char clean_ssl[16];
+            if (!trim(value, clean_ssl, sizeof(clean_ssl))) {
+                snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Invalid value for '%s.%s'", section, name);
+                return 0;
+            }
+
+            if (strncmp(clean_ssl, "true", 4) == 0 || strncmp(clean_ssl, "false", 5) == 0) {
+                cfg->sslmode = parse_bool(clean_ssl);
             } else {
                 snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Value must be 'true' or 'false' for '%s.%s' key", section, name);
                 return 0;
             }
 
         } else if (MATCH_KEY("timeout")) {  
-            
-            char *end;
-            int timeout = (int)strtol(clean_value, &end, 10);
 
-            // On n'a pas un entier
+            char clean_timeout[12];
+            if (!trim(value, clean_timeout, sizeof(clean_timeout))) {
+                snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Invalid value for '%s.%s'", section, name);
+                return 0;
+            }
+
+            char *end;
+            int timeout = (int)strtol(clean_timeout, &end, 10);
+
             if (*end != '\0') {
                 snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Value not an integer for '%s.%s' key", section, name);
                 return 0;
@@ -175,7 +186,7 @@ static int handler_config(void* config, const char* section, const char* name, c
             }
 
         } else {
-            snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Key '%s.%s' not exist", section, name);
+            snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Key '%s.%s' does not exist", section, name);
             return 0;
         }
     }
@@ -185,29 +196,37 @@ static int handler_config(void* config, const char* section, const char* name, c
 
         if (MATCH_KEY("query")) {
 
-            strncpy(cfg->query, clean_value, MAX_QUERY_LEN - 1);
-            cfg->query[MAX_QUERY_LEN - 1] = '\0';
+            if (!trim(value, cfg->query, sizeof(cfg->query))) {
+                snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Invalid value for '%s.%s'", section, name);
+                return 0;
+            }
 
         } else if (MATCH_KEY("debug")) {
 
-            if (strncmp(clean_value, "true",4) == 0 || strncmp(clean_value, "false",5) == 0) {
-                cfg->debug = parse_bool(clean_value);
+            char clean_debug[16];
+            if (!trim(value, clean_debug, sizeof(clean_debug))) {
+                snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Invalid value for '%s.%s'", section, name);
+                return 0;
+            }
+
+            if (strncmp(clean_debug, "true", 4) == 0 || strncmp(clean_debug, "false", 5) == 0) {
+                cfg->debug = parse_bool(clean_debug);
             } else {
                 snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Value must be 'true' or 'false' for '%s.%s' key", section, name);
                 return 0;
             }
 
         } else {
-            snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Key '%s.%s' not exist", section, name);
+            snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Key '%s.%s' does not exist", section, name);
             return 0;
         }
 
     } else {
-        snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Section '%s' not exist", section);
+        snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Section '%s' does not exist", section);
         return 0;
     }
 
-    return 1; // Succes
+    return 1; // Succès
 }
 
 /*
@@ -218,11 +237,11 @@ static Config* load_config(pam_handle_t *pamh, const char *fileName) {
 
     Config *config = malloc(sizeof(Config));
     if (config == NULL) {
-        pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: memory allocation error to init configuration file '%s' : %m", fileName);
+        pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: memory allocation error to init configuration file '%s': %m", fileName);
         return NULL;
     }
 
-    // Déclacation de config avec les valeurs par défaut.
+    // Déclaration de config avec les valeurs par défaut.
     *config = (Config){
         .host = "127.0.0.1",
         .port = 5432,
@@ -236,21 +255,24 @@ static Config* load_config(pam_handle_t *pamh, const char *fileName) {
     };
 
     ParseConfig ctx = {
-        .cfg = config
+        .cfg = config,
+        .has_error = false,
+        .error_msg = ""
     };
 
     // Succès si status = 0
     int status = ini_parse(fileName, handler_config, &ctx);
-    if (status > 0) {
-        pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: failed to load configuration file '%s' : %s\n", fileName, ctx.error_msg[0] != '\0' ? ctx.error_msg :"syntax error INI");
-        return NULL;
-
-    } else if (status == -1) {
-        pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: failed to load configuration file '%s'\n", fileName);
-        return NULL;
-
-    } else if (status < -1) {
-        pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: failed to load configuration file '%s' : memory allocation error\n", fileName);
+    if (status != 0) {
+        if (status > 0) {
+            pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: failed to load configuration file '%s': %s", fileName, ctx.error_msg[0] != '\0' ? ctx.error_msg : "syntax error INI");
+        } else if (status == -1) {
+            pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: failed to load configuration file '%s'", fileName);
+        } else {
+            pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: failed to load configuration file '%s': memory allocation error", fileName);
+        }
+        
+        explicit_bzero(config, sizeof(Config));
+        free(config);
         return NULL;
     }
 
@@ -262,39 +284,42 @@ static Config* load_config(pam_handle_t *pamh, const char *fileName) {
         for (size_t i = 0; i < len_passwd; i++) masked_passwd[i] = '*';
         masked_passwd[len_passwd] = '\0';
 
-        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] configuration file '%s' loaded successfully\n", fileName);
+        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] configuration file '%s' loaded successfully", fileName);
 
-        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] host    : %s\n", ctx.cfg->host);
-        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] port    : %u\n", ctx.cfg->port);
-        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] db_name : %s\n", ctx.cfg->db_name);
-        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] user    : %s\n", ctx.cfg->user);
-        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] password: %s\n", masked_passwd);
-        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] timeout : %u\n", ctx.cfg->timeout);
-        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] sslmode : %s\n", ctx.cfg->sslmode?"true":"false");
-        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] debug   : %s\n", ctx.cfg->debug?"true":"false");
-        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] query   : %s\n", ctx.cfg->query);
+        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] host    : %s", ctx.cfg->host);
+        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] port    : %u", ctx.cfg->port);
+        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] db_name : %s", ctx.cfg->db_name);
+        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] user    : %s", ctx.cfg->user);
+        
+        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] password: %s", masked_passwd);
+        explicit_bzero(masked_passwd, sizeof(masked_passwd));
+        
+        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] timeout : %u", ctx.cfg->timeout);
+        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] sslmode : %s", ctx.cfg->sslmode?"true":"false");
+        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] debug   : %s", ctx.cfg->debug?"true":"false");
+        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] query   : %s", ctx.cfg->query);
 
     } else {
-        pam_syslog(pamh, LOG_INFO, "pam_pg_argon2: configuration file '%s' loaded successfully\n", fileName);
+        pam_syslog(pamh, LOG_INFO, "pam_pg_argon2: configuration file '%s' loaded successfully", fileName);
     }
 
     return ctx.cfg;
 }
 
-// Vérifie la validité syntaxique d'un nom de fichier
-static bool is_valid_filename(const char *filename) {
+// Vérifie la validité syntaxique d'un nom de fichier (full path accepté)
+static bool is_valid_filepath(const char *full_path) {
 
-    if (filename == NULL || filename[0] == '\0') return false;
+    if (full_path == NULL || full_path[0] == '\0') return false;
 
-    // Interdire les fichiers  commençant par . ou ~
-    if (filename[0] == '.' || filename[0] == '~') return false;
+    // Interdire les fichiers commençant par . ou ~
+    if (full_path[0] == '.' || full_path[0] == '~') return false;
 
     // Le fichier ne peut dépasser 255 caractères
-    if (strlen(filename) > 255) return false;
+    if (strlen(full_path) > 255) return false;
 
-    // Vérif de la présence uniquement des caractères authorisés
-    for (int i = 0; filename[i] != '\0'; i++) {
-        unsigned char c = (unsigned char)filename[i];
+    // Vérif de la présence uniquement des caractères autorisés
+    for (int i = 0; full_path[i] != '\0'; i++) {
+        unsigned char c = (unsigned char)full_path[i];
         if (!(isalnum(c) || c == '.' || c == '_' || c == '-' || c == '/')) return false;        
     }
 
@@ -302,39 +327,40 @@ static bool is_valid_filename(const char *filename) {
 }
 
 // Extraire le nom du fichier de conf à partir d'une forme d'argument 
-// Si erreur retourne NULL, sinon le nom du fichier
-static const char *get_option(int argc, const char **argv, const char *name_key) {
+// Si erreur retourne false, sinon charge dest et retourne true
+static bool get_option(int argc, const char **argv, const char *name_key, char *dest, size_t dest_size) {
 
-    if (name_key == NULL || argv == NULL || argc != 1) return NULL;
+    if (name_key == NULL || argv == NULL || dest == NULL || dest_size == 0) return false;
 
     size_t name_key_len = strlen(name_key);
 
-    // On vérifie que argv[0] commence par "name_key="
-    if (strncmp(argv[0], name_key, name_key_len) != 0 || argv[0][name_key_len] != '=') return NULL;
+    for (int i = 0; i < argc; i++) {
+        if (argv[i] == NULL) continue;
 
-    const char *value = argv[0] + name_key_len + 1;
-    if (*value == '\0') return NULL;
+        if (strncmp(argv[i], name_key, name_key_len) == 0 && argv[i][name_key_len] == '=') {
+            const char *value = argv[i] + name_key_len + 1;
 
-    char *trim_value = trim(strdup(value));
+            if (!trim(value, dest, dest_size)) return false;
 
-    if (!is_valid_filename(trim_value)) return NULL;
+            return is_valid_filepath(dest);
+        }
+    }
 
-    return trim_value;
+    return false;
 }
 
 static int check_auth(pam_handle_t *pamh, const char *login, const char *password, int argc, const char **argv) {
  
     int status = PAM_AUTH_ERR; // Par défaut on dit que c'est un échec
 
-    // Déclaration pour utilisation de goto
     Config *config = NULL;
     PGconn *cnx = NULL;
     PGresult *rslt = NULL;
 
     // Récupérer le path du fichier de configuration fourni dans PAM
-    const char *conf_file = get_option(argc, argv, ARG_NAME);
-    if (conf_file == NULL || conf_file[0] == '\0') {
-        pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: option '%s=' must be defined in conf PAM", ARG_NAME);
+    char conf_file[FILENAME_SIZE];
+    if (!get_option(argc, argv, FILENAME_ARG, conf_file, sizeof(conf_file))) {
+        pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: option '%s=' must be defined in conf PAM", FILENAME_ARG);
         return PAM_SERVICE_ERR;
     }
 
@@ -354,7 +380,7 @@ static int check_auth(pam_handle_t *pamh, const char *login, const char *passwor
         "password",
         "sslmode",
         "connect_timeout",
-         NULL
+        NULL
     };
 
     char port_str[12], timeout_str[12];
@@ -367,7 +393,7 @@ static int check_auth(pam_handle_t *pamh, const char *login, const char *passwor
         config->db_name,
         config->user,
         config->password,
-        config->sslmode ? "require" : "disable",
+        config->sslmode?"require":"disable",
         timeout_str,
         NULL
     };
@@ -375,7 +401,7 @@ static int check_auth(pam_handle_t *pamh, const char *login, const char *passwor
     // Essai de connexion
     cnx = PQconnectdbParams(keywords, values, 0);
     if (PQstatus(cnx) != CONNECTION_OK) {
-        pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: failed bdd connection - %s",PQerrorMessage(cnx));
+        pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: failed bdd connection - %s", PQerrorMessage(cnx));
         goto defer;
     }
 
@@ -410,7 +436,7 @@ static int check_auth(pam_handle_t *pamh, const char *login, const char *passwor
     }
 
     int argon_status = argon2id_verify(hash_to_verify, password, strlen(password));
-    if(user_found && argon_status == ARGON2_OK) {
+    if (user_found && argon_status == ARGON2_OK) {
         status = PAM_SUCCESS;
     } else {
         if (argon_status != ARGON2_OK && argon_status != ARGON2_VERIFY_MISMATCH) {
@@ -418,15 +444,14 @@ static int check_auth(pam_handle_t *pamh, const char *login, const char *passwor
         }
     }
 
-    defer:
-        if (rslt != NULL) PQclear(rslt);
-        
-        if (cnx != NULL) PQfinish(cnx);
-        
-        if (config != NULL) {
-            explicit_bzero(config, sizeof(Config));
-            free(config);
-        }
+defer:
+    if (rslt != NULL) PQclear(rslt);
+    if (cnx != NULL) PQfinish(cnx);
+    
+    if (config != NULL) {
+        explicit_bzero(config, sizeof(Config));
+        free(config);
+    }
 
     return status;
 }
@@ -448,7 +473,6 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
     
     const char *login = NULL;
     const char *password = NULL;
-    char *local_password = NULL;
     (void) flags;
 
     int status = pam_get_user(pamh, &login, NULL);
@@ -463,24 +487,5 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
         return PAM_AUTH_ERR;
     }
 
-    local_password = strdup(password);
-    if (local_password == NULL) {
-            pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: memory allocation failure");
-            return PAM_BUF_ERR;
-    }
-    
-    int auth_result = check_auth(pamh, login, password, argc, argv);
-
-    // Clean du buffer du mot de passe
-    if (local_password != NULL) {
-        size_t len = strlen(local_password);
-        if (len > 0) {
-            explicit_bzero(local_password,len);
-            free(local_password);
-            local_password = NULL;
-        }
-
-    }
-    
-    return auth_result;
+    return check_auth(pamh, login, password, argc, argv);
 }
