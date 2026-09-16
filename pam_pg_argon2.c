@@ -5,6 +5,8 @@
 #include <syslog.h>
 #include <stdbool.h>
 #include <ctype.h>
+#include <unistd.h>
+#include <sys/stat.h>
 #include <ini.h>
 
 #include <security/pam_appl.h>
@@ -22,8 +24,7 @@
 #define MAX_ERROR_LEN 256
 
 #define FILENAME_ARG  "conf_file"
-#define FILENAME_SIZE 512
-
+#define FILENAME_SIZE 4096
 /*
 Structure du fichier ini par défaut :
 [POSTGRES]
@@ -306,31 +307,57 @@ static Config* load_config(pam_handle_t *pamh, const char *fileName) {
     return ctx.cfg;
 }
 
-// Vérifie la validité syntaxique d'un nom de fichier (full path accepté)
-static bool is_valid_filepath(const char *full_path) {
+/*
+    Permet d'obtenir le full path d'un fichier.
+    En cas de succès la fonction retourne true, sinon false
+    src_path contient le fichier
+    full_path contient le fichier avec le path complet
+    ex: 
+        src_path = "~/.bashrc"
+        full_path = "/home/rene.lataupe/.bashrc"
+*/
+static bool get_full_path(const char *src_path, char **full_path) {
 
-    if (full_path == NULL || full_path[0] == '\0') return false;
+    if(src_path == NULL || full_path == NULL) return false;
 
-    // Interdire les fichiers commençant par . ou ~
-    if (full_path[0] == '.' || full_path[0] == '~') return false;
+    char *tmp_path = NULL;
 
-    // Le fichier ne peut dépasser 255 caractères
-    if (strlen(full_path) > 255) return false;
+    // Gestion du '~' 
+    if (src_path[0] == '~') {
+        const char *home = getenv("HOME");
+        if (home == NULL) return false;
 
-    // Vérif de la présence uniquement des caractères autorisés
-    for (int i = 0; full_path[i] != '\0'; i++) {
-        unsigned char c = (unsigned char)full_path[i];
-        if (!(isalnum(c) || c == '.' || c == '_' || c == '-' || c == '/')) return false;        
+        size_t len_full_path = strlen(home) + strlen(src_path + 1) + 1;
+        tmp_path = malloc(len_full_path);
+        if (tmp_path == NULL) return false;
+
+        snprintf(tmp_path, len_full_path, "%s%s", home, src_path + 1);
     }
 
-    return true;
+    const char *target_path = (tmp_path != NULL) ? tmp_path : src_path;
+
+    char *local_full_path= realpath(target_path, NULL);
+    free(tmp_path);
+
+    if (local_full_path == NULL) return false;
+
+    // Vérification des droits
+    struct stat buffer;
+
+    if (stat(local_full_path, &buffer) == 0 && S_ISREG(buffer.st_mode) && access(local_full_path, R_OK) == 0) {
+        *full_path = local_full_path;
+        return true;
+    }   
+
+    free(local_full_path);
+    return false;
 }
 
 // Extraire le nom du fichier de conf à partir d'une forme d'argument 
 // Si erreur retourne false, sinon charge dest et retourne true
-static bool get_option(int argc, const char **argv, const char *name_key, char *dest, size_t dest_size) {
+static bool get_option(int argc, const char **argv, const char *name_key, char **file) {
 
-    if (name_key == NULL || argv == NULL || dest == NULL || dest_size == 0) return false;
+    if (name_key == NULL || argv == NULL || file == NULL) return false;
 
     size_t name_key_len = strlen(name_key);
 
@@ -338,11 +365,13 @@ static bool get_option(int argc, const char **argv, const char *name_key, char *
         if (argv[i] == NULL) continue;
 
         if (strncmp(argv[i], name_key, name_key_len) == 0 && argv[i][name_key_len] == '=') {
+
             const char *value = argv[i] + name_key_len + 1;
+            char dest[strlen(value)];
 
-            if (!trim(value, dest, dest_size)) return false;
+            if (!trim(value, dest, sizeof(dest))) return false;
 
-            return is_valid_filepath(dest);
+            return get_full_path(dest, file);
         }
     }
 
@@ -358,8 +387,9 @@ static int check_auth(pam_handle_t *pamh, const char *login, const char *passwor
     PGresult *rslt = NULL;
 
     // Récupérer le path du fichier de configuration fourni dans PAM
-    char conf_file[FILENAME_SIZE];
-    if (!get_option(argc, argv, FILENAME_ARG, conf_file, sizeof(conf_file))) {
+    char *conf_file = NULL;
+
+    if (!get_option(argc, argv, FILENAME_ARG, &conf_file)) {
         pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: option '%s=' must be defined in conf PAM", FILENAME_ARG);
         return PAM_SERVICE_ERR;
     }
