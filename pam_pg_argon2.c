@@ -95,6 +95,9 @@ static int handler_config(void* config, const char* section, const char* name, c
     #define MATCH_SECTION(s) (strcasecmp(section, s) == 0)
     #define MATCH_KEY(n) (strcasecmp(name, n) == 0)
 
+    //
+    int ret = 1; // 1 = succès par défaut
+
     // Section [POSTGRES]
     if (MATCH_SECTION("POSTGRES")) {    
 
@@ -102,7 +105,7 @@ static int handler_config(void* config, const char* section, const char* name, c
 
             if (!trim(value, cfg->host, sizeof(cfg->host))) {
                 snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Invalid value for '%s.%s'", section, name);
-                return 0;
+                ret = 0;
             }
 
         } else if (MATCH_KEY("port")) {
@@ -110,43 +113,41 @@ static int handler_config(void* config, const char* section, const char* name, c
             char clean_port[12];
             if (!trim(value, clean_port, sizeof(clean_port))) {
                 snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Invalid value for '%s.%s'", section, name);
-                return 0;
-            }
-
-            char *end;
-            int port = (int)strtol(clean_port, &end, 10);
-
-            if (*end != '\0') {
-                snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Value not an integer for '%s.%s' key", section, name);
-                return 0;
-            }
-
-            if (port >= 1 && port <= 65535) {
-                cfg->port = (unsigned int)port;
+                ret = 0;
             } else {
-                snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Value must be [1-65535] for '%s.%s' key", section, name);
-                return 0;
+                char *end;
+                int port = (int)strtol(clean_port, &end, 10);
+
+                if (*end != '\0') {
+                    snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Value not an integer for '%s.%s' key", section, name);
+                    ret = 0;
+                } else if (port >= 1 && port <= 65535) {
+                    cfg->port = (unsigned int)port;
+                } else {
+                    snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Value must be [1-65535] for '%s.%s' key", section, name);
+                    ret = 0;
+                }
             }
 
         } else if (MATCH_KEY("db_name")) {
 
             if (!trim(value, cfg->db_name, sizeof(cfg->db_name))) {
                 snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Invalid value for '%s.%s'", section, name);
-                return 0;
+                ret = 0;
             }
 
         } else if (MATCH_KEY("user")) {
 
             if (!trim(value, cfg->user, sizeof(cfg->user))) {
                 snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Invalid value for '%s.%s'", section, name);
-                return 0;
+                ret = 0;
             }
 
         } else if (MATCH_KEY("password")) {
 
             if (!trim(value, cfg->password, sizeof(cfg->password))) {
                 snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Invalid value for '%s.%s'", section, name);
-                return 0;
+                ret = 0;
             }
 
         } else if (MATCH_KEY("sslmode")) {
@@ -154,14 +155,12 @@ static int handler_config(void* config, const char* section, const char* name, c
             char clean_ssl[16];
             if (!trim(value, clean_ssl, sizeof(clean_ssl))) {
                 snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Invalid value for '%s.%s'", section, name);
-                return 0;
-            }
-
-            if (strncmp(clean_ssl, "true", 4) == 0 || strncmp(clean_ssl, "false", 5) == 0) {
+                ret = 0;
+            } else if (strncmp(clean_ssl, "true", 4) == 0 || strncmp(clean_ssl, "false", 5) == 0) {
                 cfg->sslmode = parse_bool(clean_ssl);
             } else {
                 snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Value must be 'true' or 'false' for '%s.%s' key", section, name);
-                return 0;
+                ret = 0;
             }
 
         } else if (MATCH_KEY("timeout")) {  
@@ -169,27 +168,25 @@ static int handler_config(void* config, const char* section, const char* name, c
             char clean_timeout[12];
             if (!trim(value, clean_timeout, sizeof(clean_timeout))) {
                 snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Invalid value for '%s.%s'", section, name);
-                return 0;
-            }
-
-            char *end;
-            int timeout = (int)strtol(clean_timeout, &end, 10);
-
-            if (*end != '\0') {
-                snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Value not an integer for '%s.%s' key", section, name);
-                return 0;
-            }
-
-            if (timeout >= 0 && timeout <= 3600) {
-                cfg->timeout = (unsigned int)timeout;
+                ret = 0;
             } else {
-                snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Value must be [0-3600] for '%s.%s' key", section, name);
-                return 0;
+                char *end;
+                int timeout = (int)strtol(clean_timeout, &end, 10);
+
+                if (*end != '\0') {
+                    snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Value not an integer for '%s.%s' key", section, name);
+                    ret = 0;
+                } else if (timeout >= 0 && timeout <= 3600) {
+                    cfg->timeout = (unsigned int)timeout;
+                } else {
+                    snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Value must be [0-3600] for '%s.%s' key", section, name);
+                    ret = 0;
+                }
             }
 
         } else {
             snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Key '%s.%s' does not exist", section, name);
-            return 0;
+            ret = 0;
         }
     }
 
@@ -200,7 +197,7 @@ static int handler_config(void* config, const char* section, const char* name, c
 
             if (!trim(value, cfg->query, sizeof(cfg->query))) {
                 snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Invalid value for '%s.%s'", section, name);
-                return 0;
+                ret = 0;
             }
 
         } else if (MATCH_KEY("debug")) {
@@ -208,27 +205,30 @@ static int handler_config(void* config, const char* section, const char* name, c
             char clean_debug[16];
             if (!trim(value, clean_debug, sizeof(clean_debug))) {
                 snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Invalid value for '%s.%s'", section, name);
-                return 0;
-            }
-
-            if (strncmp(clean_debug, "true", 4) == 0 || strncmp(clean_debug, "false", 5) == 0) {
+                ret = 0;
+            } else if (strncmp(clean_debug, "true", 4) == 0 || strncmp(clean_debug, "false", 5) == 0) {
                 cfg->debug = parse_bool(clean_debug);
             } else {
                 snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Value must be 'true' or 'false' for '%s.%s' key", section, name);
-                return 0;
+                ret = 0;
             }
 
         } else {
             snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Key '%s.%s' does not exist", section, name);
-            return 0;
+            ret = 0;
         }
 
     } else {
         snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Section '%s' does not exist", section);
-        return 0;
+        ret = 0;
     }
+    
+    // Fermeture des macros
+    #undef MATCH_SECTION
+    #undef MATCH_KEY
 
-    return 1; // Succès
+    // unique return à cause des macros
+    return ret; // Succes: 1
 }
 
 /*
@@ -319,30 +319,15 @@ static Config* load_config(pam_handle_t *pamh, const char *fileName) {
 */
 static bool get_full_path(const char *src_path, char **full_path) {
 
-    if(src_path == NULL || full_path == NULL) return false;
+if (src_path == NULL || full_path == NULL) return false;
 
-    char *tmp_path = NULL;
+    // Refuser explicitement les chemins relatifs au home utilisateur
+    if (src_path[0] == '~') return false;
 
-    // Gestion du '~' 
-    if (src_path[0] == '~') {
-        const char *home = getenv("HOME");
-        if (home == NULL) return false;
-
-        size_t len_full_path = strlen(home) + strlen(src_path + 1) + 1;
-        tmp_path = malloc(len_full_path);
-        if (tmp_path == NULL) return false;
-
-        snprintf(tmp_path, len_full_path, "%s%s", home, src_path + 1);
-    }
-
-    const char *target_path = (tmp_path != NULL) ? tmp_path : src_path;
-
-    char *local_full_path= realpath(target_path, NULL);
-    free(tmp_path);
-
+    char *local_full_path = realpath(src_path, NULL);
     if (local_full_path == NULL) return false;
 
-    // Vérification des droits
+    // Vérification des droits et du type de fichier
     struct stat buffer;
 
     if (stat(local_full_path, &buffer) == 0 && S_ISREG(buffer.st_mode) && access(local_full_path, R_OK) == 0) {
@@ -453,8 +438,9 @@ static int check_auth(pam_handle_t *pamh, const char *login, const char *passwor
     }
 
     // Protection stricte contre les attaques temporelles
-    char dummy_hash[] = "$argon2id$v=19$m=65536,t=3,p=4$bXlzYWx0bXlzYWx0$vVpBdm1mZXFlR3NuR2Z2dW1GQ0F3QT09"; 
-    const char *hash_to_verify = dummy_hash;
+    static const char * const DUMMY_HASH = "$argon2id$v=19$m=65536,t=3,p=4$bXlzYWx0bXlzYWx0$vVpBdm1mZXFlR3NuR2Z2dW1GQ0F3QT09";
+
+    const char *hash_to_verify = DUMMY_HASH;
     int user_found = 0;
 
     const char *stored_hash = NULL;
@@ -476,7 +462,10 @@ static int check_auth(pam_handle_t *pamh, const char *login, const char *passwor
     }
 
 defer:
+    if (conf_file != NULL) free(conf_file);
+    
     if (rslt != NULL) PQclear(rslt);
+    
     if (cnx != NULL) PQfinish(cnx);
     
     if (config != NULL) {
