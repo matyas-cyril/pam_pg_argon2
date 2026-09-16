@@ -33,7 +33,7 @@ port = 5432
 db_name = 
 user = 
 password = 
-sslmode = verify-full
+sslmode = false
 timeout = 3
 
 [APP]
