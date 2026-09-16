@@ -63,23 +63,25 @@ static char *trim(const char *str) {
 
     if (!str) return NULL;
 
-    // Supprime les espaces en début de chaine
+    // Déplace le pointeur au début de la chaîne nettoyée
     while (isspace((unsigned char)*str)) str++;
 
-    // Chaine vide
-    if (*str == '\0') return strdup(""); 
+    // Trouver la fin sans repasser par strlen()
+    const char *end = str;
+    const char *last_non_space = str - 1;
 
-    // Supprime les espaces en fin de chaine
-    const char *end = str + strlen(str) - 1;
-    while (end > str && isspace((unsigned char)*end)) end--;
+    while (*end != '\0') {
+        if (!isspace((unsigned char)*end)) {
+            last_non_space = end;
+        }
+        end++;
+    }
 
-    size_t len = end - str + 1;
+    size_t len = (last_non_space >= str) ? (size_t)(last_non_space - str + 1) : 0;
 
-    // Alloue la mémoire pour la nouvelle chaîne (+1 pour le '\0')
     char *trimmed_str = malloc(len + 1);
     if (!trimmed_str) return NULL;
 
-    // Copie le résultat et ajoute le caractère de fin
     memcpy(trimmed_str, str, len);
     trimmed_str[len] = '\0';
 
