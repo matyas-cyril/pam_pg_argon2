@@ -24,7 +24,7 @@
 #define MAX_ERROR_LEN 256
 
 #define FILENAME_ARG  "conf_file"
-#define FILENAME_SIZE 4096
+
 /*
 Structure du fichier ini par défaut :
 [POSTGRES]
@@ -367,7 +367,7 @@ static bool get_option(int argc, const char **argv, const char *name_key, char *
         if (strncmp(argv[i], name_key, name_key_len) == 0 && argv[i][name_key_len] == '=') {
 
             const char *value = argv[i] + name_key_len + 1;
-            char dest[strlen(value)];
+            char dest[strlen(value) + 1];
 
             if (!trim(value, dest, sizeof(dest))) return false;
 
