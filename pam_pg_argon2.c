@@ -384,6 +384,7 @@ static int check_auth(pam_handle_t *pamh, const char *login, const char *passwor
     config = load_config(pamh, conf_file);
     if (config == NULL) {
         pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: failed to init configuration");
+        if (conf_file != NULL) free(conf_file);
         return PAM_SERVICE_ERR;
     }
 
