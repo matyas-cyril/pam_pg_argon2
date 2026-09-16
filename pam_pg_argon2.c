@@ -14,9 +14,12 @@
 #include <argon2.h>
 #include <postgresql/libpq-fe.h>
 
-#define MAX_LINE_LEN 2048
-#define MAX_OPT_LEN 256
-#define MAX_QUERY_LEN 2048
+#define MAX_HOST_LEN  256
+#define MAX_USER_LEN  64
+#define MAX_PASS_LEN  512
+#define MAX_DB_LEN    64
+#define MAX_QUERY_LEN 4096
+#define MAX_ERROR_LEN 256
 
 /*
 Structure du fichier ini par défaut :
@@ -31,11 +34,11 @@ query =
 timeout = 3
  */
 typedef struct {
-    char host[MAX_OPT_LEN];
+    char host[MAX_HOST_LEN];
     unsigned int port;
-    char db_name[MAX_OPT_LEN];
-    char user[MAX_OPT_LEN];
-    char password[MAX_OPT_LEN];
+    char db_name[MAX_DB_LEN];
+    char user[MAX_USER_LEN];
+    char password[MAX_PASS_LEN];
     bool sslmode;
     bool debug;
     char query[MAX_QUERY_LEN];
@@ -46,7 +49,7 @@ typedef struct {
     Config *cfg;
     bool has_error;
     int error_line;
-    char error_msg[256];
+    char error_msg[MAX_ERROR_LEN];
 } ParseConfig;
 
 static bool parse_bool(const char *val) {
@@ -103,8 +106,8 @@ static int handler_config(void* config, const char* section, const char* name, c
 
         if (MATCH_KEY("host")) {
 
-            strncpy(cfg->host, clean_value, MAX_OPT_LEN - 1);
-            cfg->host[MAX_OPT_LEN - 1] = '\0';
+            strncpy(cfg->host, clean_value, MAX_HOST_LEN - 1);
+            cfg->host[MAX_HOST_LEN - 1] = '\0';
         
         } else if (MATCH_KEY("port")) {
 
@@ -126,18 +129,18 @@ static int handler_config(void* config, const char* section, const char* name, c
 
         } else if (MATCH_KEY("db_name")) {
 
-            strncpy(cfg->db_name, clean_value, MAX_OPT_LEN - 1);
-            cfg->db_name[MAX_OPT_LEN - 1] = '\0';            
+            strncpy(cfg->db_name, clean_value, MAX_DB_LEN - 1);
+            cfg->db_name[MAX_DB_LEN - 1] = '\0';            
             
         } else if (MATCH_KEY("user")) {
 
-            strncpy(cfg->user, clean_value, MAX_OPT_LEN - 1);
-            cfg->user[MAX_OPT_LEN - 1] = '\0';  
+            strncpy(cfg->user, clean_value, MAX_USER_LEN - 1);
+            cfg->user[MAX_USER_LEN - 1] = '\0';  
 
         } else if (MATCH_KEY("password")) {
 
-            strncpy(cfg->password, clean_value, MAX_OPT_LEN - 1);
-            cfg->password[MAX_OPT_LEN - 1] = '\0'; 
+            strncpy(cfg->password, clean_value, MAX_PASS_LEN - 1);
+            cfg->password[MAX_PASS_LEN - 1] = '\0'; 
 
         } else if (MATCH_KEY("sslmode")) {
 
@@ -177,8 +180,8 @@ static int handler_config(void* config, const char* section, const char* name, c
 
         if (MATCH_KEY("query")) {
 
-            strncpy(cfg->query, clean_value, MAX_OPT_LEN - 1);
-            cfg->query[MAX_OPT_LEN - 1] = '\0';
+            strncpy(cfg->query, clean_value, MAX_QUERY_LEN - 1);
+            cfg->query[MAX_QUERY_LEN - 1] = '\0';
 
         } else if (MATCH_KEY("debug")) {
 
@@ -210,7 +213,7 @@ static Config* load_config(pam_handle_t *pamh, const char *fileName) {
 
     Config *config = malloc(sizeof(Config));
     if (config == NULL) {
-        pam_syslog(pamh, LOG_ERR, "Memory allocation error to init configuration file '%s' : %m", fileName);
+        pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: memory allocation error to init configuration file '%s' : %m", fileName);
         return NULL;
     }
 
@@ -231,25 +234,46 @@ static Config* load_config(pam_handle_t *pamh, const char *fileName) {
         .cfg = config
     };
 
+    // Succès si status = 0
     int status = ini_parse(fileName, handler_config, &ctx);
     if (status > 0) {
-        pam_syslog(pamh, LOG_ERR, "Failed to load configuration file '%s' : %s\n", fileName, ctx.error_msg[0] != '\0' ? ctx.error_msg :"syntax error INI");
+        pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: failed to load configuration file '%s' : %s\n", fileName, ctx.error_msg[0] != '\0' ? ctx.error_msg :"syntax error INI");
         return NULL;
 
     } else if (status == -1) {
-        pam_syslog(pamh, LOG_ERR, "Failed to load configuration file '%s'\n", fileName);
+        pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: failed to load configuration file '%s'\n", fileName);
         return NULL;
 
     } else if (status < -1) {
-        pam_syslog(pamh, LOG_ERR, "Failed to load configuration file '%s' : memory allocation error\n", fileName);
+        pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: failed to load configuration file '%s' : memory allocation error\n", fileName);
         return NULL;
     }
 
-    // Succès : status = 0
+    if (ctx.cfg->debug) {
 
-    
+        // Masquer le mot de passe pour le mode debug
+        char masked_passwd[MAX_PASS_LEN];
+        size_t len_passwd = strlen(ctx.cfg->password);
+        for (size_t i = 0; i < len_passwd; i++) masked_passwd[i] = '*';
+        masked_passwd[len_passwd] = '\0';
+
+        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] configuration file '%s' loaded successfully\n", fileName);
+
+        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] host    : %s\n", ctx.cfg->host);
+        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] port    : %u\n", ctx.cfg->port);
+        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] db_name : %s\n", ctx.cfg->db_name);
+        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] user    : %s\n", ctx.cfg->user);
+        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] password: %s\n", masked_passwd);
+        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] timeout : %u\n", ctx.cfg->timeout);
+        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] sslmode : %s\n", ctx.cfg->sslmode?"true":"false");
+        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] debug   : %s\n", ctx.cfg->debug?"true":"false");
+        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] query   : %s\n", ctx.cfg->query);
+
+    } else {
+        pam_syslog(pamh, LOG_INFO, "pam_pg_argon2: configuration file '%s' loaded successfully\n", fileName);
+    }
+
     return ctx.cfg;
-
 }
 
 static const char *get_option(int argc, const char **argv, const char *name) {
