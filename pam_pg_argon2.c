@@ -21,6 +21,8 @@
 #define MAX_QUERY_LEN 4096
 #define MAX_ERROR_LEN 256
 
+#define ARG_NAME "conf_file"
+
 /*
 Structure du fichier ini par défaut :
 host = 127.0.0.1
@@ -84,6 +86,7 @@ static char *trim(const char *str) {
     return trimmed_str;
 }
 
+// Traitement de la configuration
 static int handler_config(void* config, const char* section, const char* name, const char* value) {
 
     ParseConfig* ctx = (ParseConfig*)config;
@@ -276,16 +279,45 @@ static Config* load_config(pam_handle_t *pamh, const char *fileName) {
     return ctx.cfg;
 }
 
-static const char *get_option(int argc, const char **argv, const char *name) {
-    if (name == NULL || argv == NULL) return NULL;
-    size_t name_len = strlen(name);
+// Vérifie la validité syntaxique d'un nom de fichier
+static bool is_valid_filename(const char *filename) {
 
-    for (int i = 0; i < argc; i++) {
-        if (argv[i] != NULL && strncmp(argv[i], name, name_len) == 0 && argv[i][name_len] == '=') {
-            return argv[i] + name_len + 1;
-        }
+    if (filename == NULL || filename[0] == '\0') return false;
+
+    // Interdire les fichiers  commençant par . ou ~
+    if (filename[0] == '.' || filename[0] == '~') return false;
+
+    // Le fichier ne peut dépasser 255 caractères
+    if (strlen(filename) > 255) return false;
+
+    // Vérif de la présence uniquement des caractères authorisés
+    for (int i = 0; filename[i] != '\0'; i++) {
+        unsigned char c = (unsigned char)filename[i];
+        if (!(isalnum(c) || c == '.' || c == '_' || c == '-' || c == '/')) return false;        
     }
-    return NULL;
+
+    return true;
+}
+
+// Extraire le nom du fichier de conf à partir d'une forme d'argument 
+// Si erreur retourne NULL, sinon le nom du fichier
+static const char *get_option(int argc, const char **argv, const char *name_key) {
+
+    if (name_key == NULL || argv == NULL || argc != 1) return NULL;
+
+    size_t name_key_len = strlen(name_key);
+
+    // On vérifie que argv[0] commence par "name_key="
+    if (strncmp(argv[0], name_key, name_key_len) != 0 || argv[0][name_key_len] != '=') return NULL;
+
+    const char *value = argv[0] + name_key_len + 1;
+    if (*value == '\0') return NULL;
+
+    char *trim_value = trim(strdup(value));
+
+    if (!is_valid_filename(trim_value)) return NULL;
+
+    return trim_value;
 }
 
 static int check_auth(pam_handle_t *pamh, const char *login, const char *password, int argc, const char **argv) {
@@ -298,9 +330,9 @@ static int check_auth(pam_handle_t *pamh, const char *login, const char *passwor
     PGresult *rslt = NULL;
 
     // Récupérer le path du fichier de configuration fourni dans PAM
-    const char *conf_file = get_option(argc, argv, "conf");
+    const char *conf_file = get_option(argc, argv, ARG_NAME);
     if (conf_file == NULL || conf_file[0] == '\0') {
-        pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: option conf= must be defined in conf PAM");
+        pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: option '%s=' must be defined in conf PAM", ARG_NAME);
         return PAM_SERVICE_ERR;
     }
 
@@ -385,15 +417,12 @@ static int check_auth(pam_handle_t *pamh, const char *login, const char *passwor
     }
 
     defer:
-        if (rslt != NULL) {
-            PQclear(rslt);
-        }
-
-        if (cnx != NULL) {
-            PQfinish(cnx);
-        }
-
+        if (rslt != NULL) PQclear(rslt);
+        
+        if (cnx != NULL) PQfinish(cnx);
+        
         if (config != NULL) {
+            explicit_bzero(config, sizeof(Config));
             free(config);
         }
 
