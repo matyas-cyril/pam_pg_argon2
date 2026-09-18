@@ -64,6 +64,8 @@ make install
 
 # 4. Configuration
 
+La librairie pam_pg_argon2.so a besoin d'un fichier configuration et d'un fichier de configuration PAM pour être utilisable.
+
 ## 4.1 Fichier ini
 
 La configuration de la librairie PAM est possible uniquement par un fichier de type **ini**.  
@@ -71,7 +73,9 @@ Ce fichier est composé de 2 sections :
 - POSTGRES
 - APP
 
-### 4.1.1 [POSTGRES]
+### 4.1.1 Sections
+
+#### 4.1.1.1 [POSTGRES]
 
 | CLEF | TYPE | DEFAUT | DÉSIGNATION |
 |------|------|--------|-------------|
@@ -83,14 +87,14 @@ Ce fichier est composé de 2 sections :
 | **sslmode** | bool | false | Activer la connexion SSL à la BDD |
 | **timeout** | int | 3 | Définir en seconde la durée max de la requête à la BDD |
 
-### 4.1.2 [APP]
+#### 4.1.1.2 [APP]
 
 | CLEF | TYPE | DEFAUT | DÉSIGNATION |
 |------|------|--------|-------------| 
 | **query** | string | | Requête SQL permettant d'obtenir le hash en fonction du login.<BR>Le passage du login se fait par le champ **$1**.<BR>**$1** est obligatoire dans la déclaration. |
 | **debug** | bool | false | Activer le mode debug |
 
-## 4.2 Structure complète du fichier ini
+### 4.1.2 Structure complète du fichier ini
 
 ```ini
 [POSTGRES]
@@ -107,11 +111,11 @@ query =
 debug = false
 ```
 
-## 4.3 Exemple de fichier ini
+### 4.1.3 Exemple de fichier ini
 
 Ci-dessous un fichier ini, correspondant à une BDD (TestBDD) dont l'IP de connexion est 192.168.16.64, l'utilisateur user_login et le mot de passe _VERY_STRONG_.  
 
-La requête SQL correspond au schéma de l'exemple (4.4).  
+La requête SQL correspond au schéma de l'exemple (4.2).  
 
 ``` ini 
 [POSTGRES]
@@ -124,7 +128,7 @@ password = _VERY_STRONG_
 query = SELECT password_hash FROM V_Logins WHERE username = $1 LIMIT 1
 ```
 
-## 4.4 Exemple de schéma de BDD
+## 4.2 Exemple de schéma de BDD
 
 ``` sql
 --- Table Users
@@ -150,4 +154,58 @@ CREATE OR REPLACE VIEW V_Logins AS
         AND not_before < now()
         AND (expiration IS NULL OR expiration > now());
 ```
-5. Installation
+## 4.3 PAM Configuration
+
+Elle définit les règles d'authentification et de contrôle d'accès pour un service Linux.
+
+### 4.3.1 Syntaxe
+
+La session tente d'authentifier l'utilisateur via une base PostgreSQL avec un chiffrement Argon2.  
+Si le mot de passe est valide, la gestion du compte autorise immédiatement l'accès sans restriction supplémentaire.  
+
+Ce fichier doit être présent dans **/etc/pam.d/**
+
+Le fichier doit contenir les informations suivantes :
+
+``` bash
+auth    required    pam_pg_argon2.so onf_file=_PATH_COMPLET_DU_FICHIER_INIT_
+account required    pam_permit.so
+```
+
+### 4.3.2 Exemple
+
+``` bash
+auth    required    pam_pg_argon2.so conf_file=/etc/security/pam_pg_argon2.ini
+account required    pam_permit.so
+```
+
+# 5. Installation de la librairie
+
+## 5.1 Manuelle
+
+L'installation manuelle correspond à un système Debian 13.
+
+Le fichier PAM comportant les règles d'authentification (4.3) est présent dans /etc/pam.d/ avec le nom de votre choix.
+
+``` bash
+# Copier la librairie compilée
+$ sudo cp pam_pg_argon2.so /usr/lib/x86_64-linux-gnu/security/pam_pg_argon2.so
+
+# Changer le propriètaire et le droits
+$ sudo chown root:root /usr/lib/x86_64-linux-gnu/security/pam_pg_argon2.so && \
+  sudo chmod 644 /usr/lib/x86_64-linux-gnu/security/pam_pg_argon2.so
+
+# Création du répertoire /usr/lib/security
+$ sudo mkdir -p /usr/lib/security && \
+  sudo chown root:root /usr/lib/security && \
+  sudo chmod 755 /usr/lib/security
+
+# Création du lien symbolique
+$ sudo ln -sf /lib/x86_64-linux-gnu/security/pam_pg_argon2.so /usr/lib/security/pam_pg_argon2.so
+```
+
+## 5.2 Makefile
+
+``` bash
+make install
+```
