@@ -200,6 +200,24 @@ static int handler_config(void* config, const char* section, const char* name, c
                 ret = 0;
             }
 
+            // On vérifie que la requête contient $1. Attention ce n'est pas un contrôle SQL.
+            char *p = cfg->query;
+            bool flag = false;
+            while ((p = strstr(p, "$1")) != NULL) {
+                // On vérifie que le caractère juste après n'est pas un chiffre
+                if (!isdigit((unsigned char)p[2])) {
+                    flag = true;
+                    break;
+                }
+                p += 2; // Avance pour continuer la recherche si c'était par ex on a $10
+            }
+
+            if (!flag) {
+                snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Query in '%s.%s' must contain placeholder '$1'", section, name);
+                ret = 0;
+            }
+
+
         } else if (MATCH_KEY("debug")) {
 
             char clean_debug[16];
