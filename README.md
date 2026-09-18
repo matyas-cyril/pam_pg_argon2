@@ -62,9 +62,69 @@ docker run --rm \
 make install
 ```
 
-# 4. Utilisation
+# 4. Configuration
 
-## 4.1 Exemple de schéma de BDD
+## 4.1 Fichier ini
+
+La configuration de la librairie PAM est possible uniquement par un fichier de type **ini**.  
+Ce fichier est composé de 2 sections : 
+- POSTGRES
+- APP
+
+### 4.1.1 [POSTGRES]
+
+| CLEF | TYPE | DEFAUT | DÉSIGNATION |
+|------|------|--------|-------------|
+| **host** | string | 127.0.0.1 | Adresse de connexion à la BDD |
+| **port** | int | 5432 | Port de connexion à la BDD |
+| **db_name** | string | | Nom de la BDD |
+| **user** | string | | Login à la BDD |
+| **password** | string | | Mot de passe du Login |
+| **sslmode** | bool | false | Activer la connexion SSL à la BDD |
+| **timeout** | int | 3 | Définir en seconde la durée max de la requête à la BDD |
+
+### 4.1.2 [APP]
+
+| CLEF | TYPE | DEFAUT | DÉSIGNATION |
+|------|------|--------|-------------| 
+| **query** | string | | Requête SQL permettant d'obtenir le hash en fonction du login.<BR>Le passage du login se fait par le champ **$1**.<BR>**$1** est obligatoire dans la déclaration. |
+| **debug** | bool | false | Activer le mode debug |
+
+## 4.2 Structure complète du fichier ini
+
+```ini
+[POSTGRES]
+host = 127.0.0.1
+port = 5432
+db_name = 
+user = 
+password = 
+sslmode = false
+timeout = 3
+
+[APP]
+query = 
+debug = false
+```
+
+## 4.3 Exemple de fichier ini
+
+Ci-dessous un fichier ini, correspondant à une BDD (TestBDD) dont l'IP de connexion est 192.168.16.64, l'utilisateur user_login et le mot de passe _VERY_STRONG_.  
+
+La requête SQL correspond au schéma de l'exemple (4.4).  
+
+``` ini 
+[POSTGRES]
+host = 192.168.16.64
+db_name = TestBDD
+user = user_login
+password = _VERY_STRONG_
+
+[APP]
+query = SELECT password_hash FROM V_Logins WHERE username = $1 LIMIT 1
+```
+
+## 4.4 Exemple de schéma de BDD
 
 ``` sql
 --- Table Users
@@ -90,3 +150,4 @@ CREATE OR REPLACE VIEW V_Logins AS
         AND not_before < now()
         AND (expiration IS NULL OR expiration > now());
 ```
+5. Installation
