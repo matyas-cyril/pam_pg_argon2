@@ -1,5 +1,27 @@
 # pam_pg_argon2
 
+- [1. Présentation](#1-présentation)
+- [2. Compilation](#2-compilation)
+  - [2.1 Prérequis](#21-prérequis)
+  - [2.2 Makefile](#22-makefile)
+  - [2.3 Manuelle](#23-manuelle)
+  - [2.4 Docker](#24-docker)
+- [3. Installation](#3-installation)
+  - [3.1 Manuelle](#31-manuelle)
+  - [3.2 Makefile](#32-makefile)
+- [4. Makefile: Commandes disponibles](#4-makefile-commandes-disponibles)
+- [5. Configuration](#5-configuration)
+  - [5.1 Fichier ini](#51-fichier-ini)
+    - [5.1.1 Sections](#511-sections)
+      - [5.1.1.1 [POSTGRES]](#5111-postgres)
+      - [5.1.1.2 [APP]](#5112-app)
+    - [5.1.2 Structure du fichier ini](#512-structure-du-fichier-ini)
+    - [5.1.3 Exemple de fichier ini](#513-exemple-de-fichier-ini)
+  - [5.2 Exemple de schéma de BDD](#52-exemple-de-schéma-de-bdd)
+  - [5.3 PAM Configuration](#53-pam-configuration)
+    - [5.3.1 Syntaxe](#531-syntaxe)
+    - [5.3.2 Exemple](#532-exemple)
+
 # 1. Présentation
 
 Module PAM permettant d'authentifier des utilisateurs à partir d'informations stockées dans une BDD PostgreSQL.  
@@ -7,35 +29,33 @@ Le hash des mots de passe est l'argon2id.
 
 # 2. Compilation
 
+Cloner préalablement le dépot.
+
 ## 2.1 Prérequis
 
-Pour la comilation (hors méthode 2.2.3 Docker), Vérifier la présence des dépendances de developpement.  
+Pour la compilation (hors méthode [Docker](#24-docker) ), Vérifier la présence des dépendances de developpement.  
 Exemple sur Debian :
 ```bash
 sudo apt update
 sudo apt install build-essential gcc libargon2-1 libargon2-dev libpam-doc libpam0g-dev libpq-dev libpq5 libssl-dev libinih-dev
 ```
 
-## 2.2 Compilation 
-
-Cloner le dépot.
-
-### 2.2.1 makefile
+### 2.2 Makefile
 
 ``` bash
 make build
 ```
 
-### 2.2.2 gcc
+### 2.3 Manuelle
 
 ``` bash
 gcc -fPIC -shared -Wall -Wextra -O2 -fstack-protector-strong -D_GNU_SOURCE -Wl,-z,defs -o pam_pg_argon2.so pam_pg_argon2.c -lpq -largon2 -lpam -linih
 ```
 
-### 2.2.3 Docker
+### 2.4 Docker
 
 Compilation en utilisant la création d'un container temporaire.  
-Nécessite la présente de Docker sur l'hôte.  
+Nécessite uniquement la présente de Docker sur l'hôte.  
 
 Dans l'exemple ci-dessous la compilation est effectuée en utilisant une image Debian Trixie (13)
 
@@ -54,28 +74,59 @@ docker run --rm \
 ```
 # 3. Installation
 
-# 3.1 manuelle
+# 3.1 Manuelle
 
-# 3.2 makefile
+L'installation manuelle correspond à un système Debian 13.
+
+Le fichier PAM comportant les règles d'authentification (4.3) est présent dans /etc/pam.d/ avec le nom de votre choix.
+
+``` bash
+# Créer le dossier de destination
+sudo mkdir -p /lib/x86_64-linux-gnu/security && \
+   sudo chown root:root /lib/x86_64-linux-gnu/security && \
+   sudo chmod 755 /lib/x86_64-linux-gnu/security
+
+# Copier la librairie compilée
+sudo cp -f pam_pg_argon2.so /lib/x86_64-linux-gnu/security/pam_pg_argon2.so && \
+   sudo chown root:root /lib/x86_64-linux-gnu/security/pam_pg_argon2.so && \
+   sudo chmod 644 /lib/x86_64-linux-gnu/security/pam_pg_argon2.so
+
+# Créer le dossier et le lien pour le fonctionnement Saslauthd
+sudo mkdir -p /usr/lib/security && \
+   sudo chown root:root /usr/lib/security && \
+   sudo ln -sf /lib/x86_64-linux-gnu/security/pam_pg_argon2.so /usr/lib/security/pam_pg_argon2.so
+```
+
+# 3.2 Makefile
 
 ``` bash
 make install
 ```
 
-# 4. Configuration
+# 4. Makefile: Commandes disponibles
+
+| Commande | Description |
+|----------|-------------|
+| **make build** | Compiler le module PAM |
+| **make clean** | Supprimer le fichier compilé 'pam_pg_argon2.so' |
+| **sudo make install** | Installer le module 'pam_pg_argon2.so' dans le répertoire PAM |
+| **sudo make uninstall** | Désinstaller le module 'pam_pg_argon2.so' |
+| **make docker** | Compiler le module PAM via Docker |
+
+# 5. Configuration
 
 La librairie pam_pg_argon2.so a besoin d'un fichier configuration et d'un fichier de configuration PAM pour être utilisable.
 
-## 4.1 Fichier ini
+## 5.1 Fichier ini
 
 La configuration de la librairie PAM est possible uniquement par un fichier de type **ini**.  
 Ce fichier est composé de 2 sections : 
 - POSTGRES
 - APP
 
-### 4.1.1 Sections
+### 5.1.1 Sections
 
-#### 4.1.1.1 [POSTGRES]
+#### 5.1.1.1 [POSTGRES]
 
 | CLEF | TYPE | DEFAUT | DÉSIGNATION |
 |------|------|--------|-------------|
@@ -87,14 +138,14 @@ Ce fichier est composé de 2 sections :
 | **sslmode** | bool | false | Activer la connexion SSL à la BDD |
 | **timeout** | int | 3 | Définir en seconde la durée max de la requête à la BDD |
 
-#### 4.1.1.2 [APP]
+#### 5.1.1.2 [APP]
 
 | CLEF | TYPE | DEFAUT | DÉSIGNATION |
 |------|------|--------|-------------| 
 | **query** | string | | Requête SQL permettant d'obtenir le hash en fonction du login.<BR>Le passage du login se fait par le champ **$1**.<BR>**$1** est obligatoire dans la déclaration. |
 | **debug** | bool | false | Activer le mode debug |
 
-### 4.1.2 Structure complète du fichier ini
+### 5.1.2 Structure du fichier ini
 
 ```ini
 [POSTGRES]
@@ -111,7 +162,7 @@ query =
 debug = false
 ```
 
-### 4.1.3 Exemple de fichier ini
+### 5.1.3 Exemple de fichier ini
 
 Ci-dessous un fichier ini, correspondant à une BDD (TestBDD) dont l'IP de connexion est 192.168.16.64, l'utilisateur user_login et le mot de passe _VERY_STRONG_.  
 
@@ -128,7 +179,7 @@ password = _VERY_STRONG_
 query = SELECT password_hash FROM V_Logins WHERE username = $1 LIMIT 1
 ```
 
-## 4.2 Exemple de schéma de BDD
+## 5.2 Exemple de schéma de BDD
 
 ``` sql
 --- Table Users
@@ -154,11 +205,11 @@ CREATE OR REPLACE VIEW V_Logins AS
         AND not_before < now()
         AND (expiration IS NULL OR expiration > now());
 ```
-## 4.3 PAM Configuration
+## 5.3 PAM Configuration
 
 Elle définit les règles d'authentification et de contrôle d'accès pour un service Linux.
 
-### 4.3.1 Syntaxe
+### 5.3.1 Syntaxe
 
 La session tente d'authentifier l'utilisateur via une base PostgreSQL avec un chiffrement Argon2.  
 Si le mot de passe est valide, la gestion du compte autorise immédiatement l'accès sans restriction supplémentaire.  
@@ -172,40 +223,9 @@ auth    required    pam_pg_argon2.so onf_file=_PATH_COMPLET_DU_FICHIER_INIT_
 account required    pam_permit.so
 ```
 
-### 4.3.2 Exemple
+### 5.3.2 Exemple
 
 ``` bash
 auth    required    pam_pg_argon2.so conf_file=/etc/security/pam_pg_argon2.ini
 account required    pam_permit.so
-```
-
-# 5. Installation de la librairie
-
-## 5.1 Manuelle
-
-L'installation manuelle correspond à un système Debian 13.
-
-Le fichier PAM comportant les règles d'authentification (4.3) est présent dans /etc/pam.d/ avec le nom de votre choix.
-
-``` bash
-# Copier la librairie compilée
-$ sudo cp pam_pg_argon2.so /usr/lib/x86_64-linux-gnu/security/pam_pg_argon2.so
-
-# Changer le propriètaire et le droits
-$ sudo chown root:root /usr/lib/x86_64-linux-gnu/security/pam_pg_argon2.so && \
-  sudo chmod 644 /usr/lib/x86_64-linux-gnu/security/pam_pg_argon2.so
-
-# Création du répertoire /usr/lib/security
-$ sudo mkdir -p /usr/lib/security && \
-  sudo chown root:root /usr/lib/security && \
-  sudo chmod 755 /usr/lib/security
-
-# Création du lien symbolique
-$ sudo ln -sf /lib/x86_64-linux-gnu/security/pam_pg_argon2.so /usr/lib/security/pam_pg_argon2.so
-```
-
-## 5.2 Makefile
-
-``` bash
-make install
 ```
