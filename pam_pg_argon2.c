@@ -440,6 +440,9 @@ static int check_auth(pam_handle_t *pamh, const char *login, const char *passwor
         goto defer;
     }
 
+    if (config->debug)
+        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] success bdd connection - '%s:%d' for user '%s'", config->host, config->port, config->user);
+
     const char *params[1];
     params[0] = login;
 
@@ -447,14 +450,20 @@ static int check_auth(pam_handle_t *pamh, const char *login, const char *passwor
     rslt = PQexecParams(cnx, config->query, 1, NULL, params, NULL, NULL, 0);
 
     if (rslt == NULL) {
-        pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: query failed - %s", PQerrorMessage(cnx));
+        if (config->debug)
+            pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: query failed - %s", PQerrorMessage(cnx));
         goto defer;
     }
 
     if (PQresultStatus(rslt) != PGRES_TUPLES_OK) {
-        pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: query respond not valid - %s", PQresultErrorMessage(rslt));
+        if (config->debug)
+            pam_syslog(pamh, LOG_ERR, "pam_pg_argon2: query respond not valid - %s", PQresultErrorMessage(rslt));
         goto defer;
     }
+
+    if (config->debug) 
+        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] success query for login '%s'", login);
+    
 
     // Protection stricte contre les attaques temporelles
     static const char * const DUMMY_HASH = "$argon2id$v=19$m=65536,t=3,p=4$bXlzYWx0bXlzYWx0$vVpBdm1mZXFlR3NuR2Z2dW1GQ0F3QT09";
@@ -481,15 +490,38 @@ static int check_auth(pam_handle_t *pamh, const char *login, const char *passwor
     }
 
 defer:
-    if (conf_file != NULL) free(conf_file);
+
+    if (config->debug)
+        pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] check auth return value '%d'", status);
+
+    if (conf_file != NULL) {
+        free(conf_file);
+        if (config->debug)
+            pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] free configuration file");
+    }
     
-    if (rslt != NULL) PQclear(rslt);
+    if (rslt != NULL) {
+        PQclear(rslt);
+        if (config->debug)
+            pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] clear BDD request for login '%s'", login);
+    }
     
-    if (cnx != NULL) PQfinish(cnx);
+    if (cnx != NULL) {
+        PQfinish(cnx);
+        if (config->debug)
+            pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] connection closed - '%s:%d' for user '%s'", config->host, config->port, config->user);
+    }
     
     if (config != NULL) {
+        
+        if (config->debug) {
+            pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] erase config");
+            pam_syslog(pamh, LOG_DEBUG, "pam_pg_argon2: [DEBUG] free config");
+        }
+            
         explicit_bzero(config, sizeof(Config));
         free(config);
+            
     }
 
     return status;
