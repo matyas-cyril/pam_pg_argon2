@@ -24,7 +24,7 @@ PAM_DIR := $(shell if [ -d /lib/x86_64-linux-gnu/security ]; then echo /lib/x86_
 .PHONY: all build clean install uninstall docker
 
 .$(TARGET): 
-	$(CC) $(CFLAGS) -o $(TARGET) $(SRC) $< $(LDFLAGS)
+	$(CC) $(CFLAGS) -o $(TARGET) $(SRC) $(LDFLAGS)
 
 .root: 
 	@if [ "$$(id -u)" -ne 0 ]; then \
