@@ -60,6 +60,15 @@ typedef struct {
     char error_msg[MAX_ERROR_LEN];
 } ParseConfig;
 
+__attribute__((used, section(".author_info")))
+static const char author_info[] =
+    "Project : pam_pg_argon2\n"
+    "Author : matyas-cyril\n"
+    "Source : https://github.com/matyas-cyril/pam_pg_argon2\n"
+    "Build Date : "__DATE__" - "__TIME__"\n"
+    "Compiler version : "__VERSION__"\n"
+    "Licence : GPL-3.0\n";
+
 static bool parse_bool(const char *val) {
     return (strcasecmp(val, "true") == 0 || strcmp(val, "1") == 0);
 }
