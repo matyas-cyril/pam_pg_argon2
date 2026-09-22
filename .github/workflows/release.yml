@@ -1,0 +1,36 @@
+name: Build and Release PAM Module
+
+on:
+  push:
+    tags:
+      - 'v*' # S'exécute au push d'un tag comme v1.0.0
+
+jobs:
+  build-and-release:
+    runs-on: debian-latest
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Nécessaire pour vérifier la branche main
+
+      - name: Vérification que le tag pointe sur main
+        run: |
+          BRANCHES=$(git branch -r --contains ${{ github.sha }})
+          if [[ ! "$BRANCHES" =~ "origin/main" ]]; then
+            echo "Erreur : Le tag n'est pas sur la branche main."
+            exit 1
+          fi
+
+      - name: Compilation via Docker (Makefile)
+        run: make docker
+
+      - name: Création de la Release GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          files: pam_pg_argon2.so
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
