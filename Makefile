@@ -65,3 +65,14 @@ docker:
 			rm -f $(TARGET) && \
 			gcc -fPIC -shared -Wall -Wextra -O2 -fstack-protector-strong -D_GNU_SOURCE -Wl,-z,defs -o $(TARGET) $(SRC) -lpq -largon2 -lpam -linih && \
 			chown $$HOST_UID:$$HOST_GID $(TARGET)'
+
+info:
+	@if ! command -v readelf >/dev/null 2>&1; then \
+		printf "\033[31mERROR : command 'readelf' not available\033[0m\n" >&2; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(TARGET)" ]; then \
+		printf "\033[31mERROR : file '"$(TARGET)"' not exist - use command 'make build' or 'make docker'\033[0m\n" >&2; \
+		exit 1; \
+	fi
+	@readelf -p .author_info $(TARGET)
