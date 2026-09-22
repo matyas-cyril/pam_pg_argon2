@@ -57,6 +57,8 @@ docker:
 	@docker run --rm \
 		-e HOST_UID="$$(id -u)" \
 		-e HOST_GID="$$(id -g)" \
+		-v /etc/localtime:/etc/localtime:ro \
+		-v /etc/timezone:/etc/timezone:ro \
 		-v "$$(pwd)":/usr/src/pam_pg_argon2 \
 		-w /usr/src/pam_pg_argon2 \
 		$(DOCKER_IMG):$(DOCKER_IMG_TAGS) \
@@ -75,4 +77,7 @@ info:
 		printf "\033[31mERROR : file '"$(TARGET)"' not exist - use command 'make build' or 'make docker'\033[0m\n" >&2; \
 		exit 1; \
 	fi
-	@readelf -p .author_info $(TARGET)
+	@for section in .author_info .comment; do \
+		printf '\n--- Section %s ---\n' "$$section"; \
+		readelf -p "$$section" "$(TARGET)" || true; \
+	done
