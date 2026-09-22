@@ -112,6 +112,7 @@ make install
 | **sudo make install** | Installer le module 'pam_pg_argon2.so' dans le répertoire PAM |
 | **sudo make uninstall** | Désinstaller le module 'pam_pg_argon2.so' |
 | **make docker** | Compiler le module PAM via Docker |
+| **make info** |Afficher le contenu des sections .author_info et .comment du module 'pam_pg_argon2.so' |
 
 # 5. Configuration
 
