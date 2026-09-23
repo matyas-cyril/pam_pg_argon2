@@ -173,7 +173,7 @@ La requête SQL correspond au schéma de l'exemple (4.2).
 [POSTGRES]
 host = 192.168.16.64
 db_name = TestBDD
-user = user_login
+user = user_bdd_login
 password = _VERY_STRONG_
 
 [APP]
