@@ -8,7 +8,9 @@ on:
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: write
+    
     steps:
       - name: Checkout du code
         uses: actions/checkout@v4
@@ -27,7 +29,7 @@ jobs:
         run: make docker
 
       - name: Création de la Release GitHub
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.6.2
         with:
           files: pam_pg_argon2.so
           draft: false
